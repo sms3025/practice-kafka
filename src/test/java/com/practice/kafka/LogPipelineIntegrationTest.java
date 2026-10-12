@@ -29,9 +29,11 @@ class LogPipelineIntegrationTest {
     @Test
     void producedEventIsConsumed() throws Exception {
         long before = consumer.consumedCount();
+        Instant now = Instant.now();
 
-        producer.send(LogEvent.of("order-api", LogEvent.LogLevel.INFO, "hello kafka", "test-host"))
-                .get(); // 테스트에서는 브로커 ack까지 기다린다.
+        producer.send(new LogEvent("dev-0001", "/var/log/devices/dev-0001.log", now, now, 0,
+                        "2026-10-12 14:03:21.123 [INFO] hello kafka", "INFO", "hello kafka"))
+                .get(); // 테스트에서는 브로커 ack 까지 기다린다.
 
         // 컨슈머는 별도 스레드에서 poll 하므로 잠시 기다리며 확인한다.
         Instant deadline = Instant.now().plus(Duration.ofSeconds(10));

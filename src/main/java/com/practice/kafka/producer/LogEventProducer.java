@@ -35,21 +35,22 @@ public class LogEventProducer {
     }
 
     /**
-     * 이벤트를 발행한다. 메시지 키는 service 이름이다.
+     * 이벤트를 발행한다. 메시지 키는 device_id 다.
      *
      * <p>같은 키를 가진 메시지는 항상 같은 파티션으로 간다(기본 파티셔너: murmur2(key) % 파티션 수).
-     * 따라서 "같은 서비스의 로그는 발생 순서대로 처리된다"는 보장을 얻는다.
+     * 따라서 "같은 장비의 로그는 발생 순서대로 처리된다"는 보장을 얻는다.
+     * 1,000대 장비가 3개 파티션에 해시로 분산되므로 특정 파티션으로 쏠리지 않는다.
      * 키가 null이면 파티션에 라운드로빈(정확히는 sticky) 방식으로 분산된다.
      */
     public CompletableFuture<SendResult<String, LogEvent>> send(LogEvent event) {
-        return kafkaTemplate.send(topic, event.service(), event)
+        return kafkaTemplate.send(topic, event.deviceId(), event)
                 .whenComplete((result, ex) -> {
                     if (ex != null) {
-                        log.error("발행 실패 id={} service={}", event.id(), event.service(), ex);
+                        log.error("발행 실패 key={}", event.idempotencyKey(), ex);
                     } else {
                         var meta = result.getRecordMetadata();
-                        log.debug("발행 성공 id={} -> topic={} partition={} offset={}",
-                                event.id(), meta.topic(), meta.partition(), meta.offset());
+                        log.debug("발행 성공 key={} -> topic={} partition={} offset={}",
+                                event.idempotencyKey(), meta.topic(), meta.partition(), meta.offset());
                     }
                 });
     }

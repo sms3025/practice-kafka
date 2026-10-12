@@ -1,15 +1,13 @@
-### Step 1 - 로그 한 건 발행
+### Step 1 - 로그 한 건 발행 (Step 2 에서 요청 형식이 deviceId + raw 로 바뀜)
 POST http://localhost:8080/api/logs
 Content-Type: application/json
 
 {
-  "service": "order-api",
-  "level": "ERROR",
-  "message": "NullPointerException at OrderService.create",
-  "host": "host-a"
+  "deviceId": "dev-0001",
+  "raw": "2026-10-12 14:03:21.123 [ERROR] NullPointerException at OrderService.create"
 }
 
-### Step 1 - 무작위 로그 1000건 발행
+### Step 1 - 무작위 로그 1000건을 Kafka 에 직접 발행
 POST http://localhost:8080/api/logs/generate?count=1000
 
 ### Step 1 - 소비 건수 확인

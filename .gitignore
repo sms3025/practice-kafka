@@ -20,3 +20,5 @@ Thumbs.db
 *.log
 /logs/
 .env
+# 시뮬레이터가 만드는 장비 로그 (디렉터리는 .gitkeep 으로 유지)
+/docker/devices/*.log

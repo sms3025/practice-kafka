@@ -5,15 +5,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * "대용량 로그"를 흉내 내기 위한 무작위 로그 생성기.
+ * Fluent Bit 을 거치지 않고 Kafka 에 직접 "대용량 로그"를 밀어 넣는 부하 생성기.
  *
- * <p>여러 서비스/호스트에서 다양한 레벨의 로그가 섞여 들어오는 상황을 만든다.
- * {@link #generate(int)}는 모든 전송의 Future가 완료될 때까지 기다린 뒤 걸린 시간을 돌려주므로,
+ * <p>수집 경로(Fluent Bit → HTTP)의 병목과 Kafka 자체의 처리량을 분리해서 보고 싶을 때 쓴다.
+ * {@link #generate(int)}는 모든 전송의 Future 가 완료(브로커 ack)될 때까지 기다린 뒤 걸린 시간을 돌려주므로,
  * 프로듀서 설정(batch.size, linger.ms, acks 등)을 바꿔가며 처리량 차이를 체감할 수 있다.
  */
 @Component
@@ -21,26 +23,24 @@ public class LogGenerator {
 
     private static final Logger log = LoggerFactory.getLogger(LogGenerator.class);
 
-    private static final List<String> SERVICES = List.of(
-            "order-api", "payment-api", "inventory-api", "user-api", "notification-worker");
-    private static final List<String> HOSTS = List.of("host-a", "host-b", "host-c");
     private static final List<String> MESSAGES = List.of(
-            "request handled", "cache miss", "slow query detected", "retrying upstream call",
-            "connection reset by peer", "NullPointerException at OrderService.create",
-            "payment approved", "stock reserved", "token expired", "scheduled job finished");
+            "ENGINE rpm=2400 temp=88C", "GPS fix acquired", "CAN bus frame dropped",
+            "BATTERY voltage=12.6V", "SENSOR vibration threshold exceeded",
+            "FW update check: version 2.3.1", "DOOR state changed", "ECU watchdog reset");
 
     private final LogEventProducer producer;
+    private final AtomicLong fakeOffset = new AtomicLong();
 
     public LogGenerator(LogEventProducer producer) {
         this.producer = producer;
     }
 
-    /** count 건을 발행하고, 모든 전송이 완료(브로커 ack 수신)될 때까지 걸린 시간을 ms로 돌려준다. */
-    public long generate(int count) {
+    /** count 건을 발행하고, 모든 전송이 완료(브로커 ack 수신)될 때까지 걸린 시간을 ms 로 돌려준다. */
+    public long generate(int count, int deviceCount) {
         long start = System.nanoTime();
         CompletableFuture<?>[] futures = new CompletableFuture<?>[count];
         for (int i = 0; i < count; i++) {
-            futures[i] = producer.send(randomEvent());
+            futures[i] = producer.send(randomEvent(deviceCount));
         }
         CompletableFuture.allOf(futures).join();
         long elapsedMs = (System.nanoTime() - start) / 1_000_000;
@@ -49,18 +49,15 @@ public class LogGenerator {
         return elapsedMs;
     }
 
-    private LogEvent randomEvent() {
+    private LogEvent randomEvent(int deviceCount) {
         var rnd = ThreadLocalRandom.current();
-        // 레벨 분포: INFO 70%, DEBUG 15%, WARN 10%, ERROR 5% 정도로 현실적인 비율을 흉내 낸다.
         int r = rnd.nextInt(100);
-        LogEvent.LogLevel level = r < 70 ? LogEvent.LogLevel.INFO
-                : r < 85 ? LogEvent.LogLevel.DEBUG
-                : r < 95 ? LogEvent.LogLevel.WARN
-                : LogEvent.LogLevel.ERROR;
-        return LogEvent.of(
-                SERVICES.get(rnd.nextInt(SERVICES.size())),
-                level,
-                MESSAGES.get(rnd.nextInt(MESSAGES.size())),
-                HOSTS.get(rnd.nextInt(HOSTS.size())));
+        String level = r < 65 ? "INFO" : r < 85 ? "DEBUG" : r < 95 ? "WARN" : "ERROR";
+        String deviceId = String.format("dev-%04d", rnd.nextInt(deviceCount) + 1);
+        String message = MESSAGES.get(rnd.nextInt(MESSAGES.size()));
+        Instant now = Instant.now();
+        String raw = now + " [" + level + "] " + message;
+        return new LogEvent(deviceId, "generator://" + deviceId, now, now,
+                fakeOffset.getAndIncrement(), raw, level, message);
     }
 }

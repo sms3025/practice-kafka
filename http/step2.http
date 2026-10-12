@@ -1,0 +1,38 @@
+### Step 2 - 장비 로그 파일에 200줄 기록 (→ Fluent Bit 이 읽어 /ingest/fluentbit 로 보낸다)
+POST http://localhost:8080/api/logs/simulate?lines=200
+
+### Step 2 - 수신/소비 건수 확인
+GET http://localhost:8080/api/logs/stats
+
+### Step 2 - 원문 한 줄 정규화 결과 확인 (응답 본문이 정규화된 LogEvent)
+POST http://localhost:8080/api/logs
+Content-Type: application/json
+
+{
+  "deviceId": "dev-0001",
+  "raw": "2026-10-12 14:03:21.123 [WARN] ECU temperature high: 97C"
+}
+
+### Step 2 - 시각이 없는 지저분한 줄 (event_time 이 collected_at 으로 대체되는지)
+POST http://localhost:8080/api/logs
+Content-Type: application/json
+
+{
+  "deviceId": "dev-0002",
+  "raw": "ERROR watchdog reset without timestamp"
+}
+
+### Step 2 - Fluent Bit 이 보내는 것과 같은 형식으로 직접 호출해보기
+POST http://localhost:8080/ingest/fluentbit
+Content-Type: application/json
+
+[
+  {"collected_at": "2026-10-12T05:03:22.004Z", "log": "2026-10-12 14:03:21.123 [INFO] ENGINE rpm=2400 temp=88C", "source": "/var/log/devices/dev-0009.log", "offset": 0},
+  {"collected_at": "2026-10-12T05:03:22.004Z", "log": "2026-10-12 14:03:21.456 [ERROR] CAN bus frame id=0x1A3 dropped", "source": "/var/log/devices/dev-0009.log", "offset": 58}
+]
+
+### Fluent Bit 자체 지표 (입력/출력/재시도 건수)
+GET http://localhost:2020/api/v1/metrics
+
+### Kafka 직접 발행 부하 테스트 (Fluent Bit 경로를 거치지 않음)
+POST http://localhost:8080/api/logs/generate?count=5000&devices=1000

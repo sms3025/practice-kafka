@@ -36,9 +36,10 @@ public class LogEventConsumer {
                            @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
                            @Header(KafkaHeaders.OFFSET) long offset) {
         long n = consumedCount.incrementAndGet();
-        log.info("[consume #{}] partition={} offset={} key={} | {} {} {} - {}",
+        // Kafka 오프셋(offset)과 파일 오프셋(event.offset())은 다른 것이다. 전자는 파티션 내 위치, 후자는 원본 파일 내 바이트 위치.
+        log.info("[consume #{}] p{}@{} key={} | event_time={} level={} file_offset={} | {}",
                 n, partition, offset, key,
-                event.level(), event.service(), event.host(), event.message());
+                event.eventTime(), event.level(), event.offset(), event.message());
     }
 
     public long consumedCount() {

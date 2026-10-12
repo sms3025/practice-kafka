@@ -1,5 +1,5 @@
 # =============================================================================
-# Step 0 ~ Step 3 용 로컬 인프라: 단일 브로커 Kafka (KRaft 모드) + Kafka UI
+# 로컬 인프라: 단일 브로커 Kafka (KRaft 모드) + Kafka UI + Fluent Bit 수집 에이전트
 #
 # 실행:   docker compose -f docker/docker-compose.yml up -d
 # 중지:   docker compose -f docker/docker-compose.yml down        (데이터 유지)
@@ -69,5 +69,23 @@ services:
       kafka:
         condition: service_healthy
 
+  fluent-bit:
+    # 수집 에이전트. ./devices/*.log 를 tail 해서 호스트의 Spring 앱(localhost:8080)으로 HTTP 전송한다.
+    # Spring 앱이 떠 있지 않으면 재시도하며 디스크 버퍼에 쌓아둔다. (앱을 나중에 띄워도 된다)
+    image: fluent/fluent-bit:4.2
+    container_name: fluent-bit
+    ports:
+      - "2020:2020"   # http://localhost:2020/api/v1/metrics  (입력/출력/재시도 건수)
+    volumes:
+      - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./devices:/var/log/devices:ro
+      - fluent-bit-state:/fluent-bit/db
+      - fluent-bit-storage:/fluent-bit/storage
+    extra_hosts:
+      # Linux 에서도 host.docker.internal 이 호스트를 가리키게 한다 (Docker Desktop 은 기본 제공)
+      - "host.docker.internal:host-gateway"
+
 volumes:
   kafka-data:
+  fluent-bit-state:
+  fluent-bit-storage:

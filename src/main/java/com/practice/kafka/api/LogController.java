@@ -1,12 +1,14 @@
 package com.practice.kafka.api;
 
 import com.practice.kafka.consumer.LogEventConsumer;
+import com.practice.kafka.ingest.FluentBitIngestController;
 import com.practice.kafka.log.LogEvent;
+import com.practice.kafka.log.LogNormalizer;
 import com.practice.kafka.producer.LogEventProducer;
 import com.practice.kafka.producer.LogGenerator;
+import com.practice.kafka.simulator.DeviceLogSimulator;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,15 +18,17 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.Map;
 
 /**
- * 로그 이벤트를 발행하기 위한 REST API.
+ * 학습·실험용 REST API. (운영 경로인 /ingest/fluentbit 은 {@link FluentBitIngestController} 에 있다)
  *
  * <ul>
- *   <li>POST /api/logs                 : 로그 한 건을 직접 발행</li>
- *   <li>POST /api/logs/generate?count=N: 무작위 로그 N건을 빠르게 발행 (부하 실험용)</li>
- *   <li>GET  /api/logs/stats           : 이 인스턴스가 소비한 건수 확인</li>
+ *   <li>POST /api/logs                       : 원문 한 줄을 직접 정규화해 발행 (정규화 결과를 응답으로 확인)</li>
+ *   <li>POST /api/logs/generate?count=N      : Kafka 에 직접 N건 발행 (Kafka 처리량 실험)</li>
+ *   <li>POST /api/logs/simulate?lines=N      : 장비 로그 파일에 N줄 기록 (Fluent Bit 수집 경로 실험)</li>
+ *   <li>GET  /api/logs/stats                 : 수신/소비 건수</li>
  * </ul>
  */
 @RestController
@@ -34,36 +38,46 @@ public class LogController {
     private final LogEventProducer producer;
     private final LogGenerator generator;
     private final LogEventConsumer consumer;
+    private final LogNormalizer normalizer;
+    private final DeviceLogSimulator simulator;
+    private final FluentBitIngestController ingest;
 
-    public LogController(LogEventProducer producer, LogGenerator generator, LogEventConsumer consumer) {
+    public LogController(LogEventProducer producer, LogGenerator generator, LogEventConsumer consumer,
+                         LogNormalizer normalizer, DeviceLogSimulator simulator, FluentBitIngestController ingest) {
         this.producer = producer;
         this.generator = generator;
         this.consumer = consumer;
+        this.normalizer = normalizer;
+        this.simulator = simulator;
+        this.ingest = ingest;
     }
 
-    public record PublishRequest(
-            @NotBlank String service,
-            @NotNull LogEvent.LogLevel level,
-            @NotBlank String message,
-            String host
-    ) {}
+    public record PublishRequest(@NotBlank String deviceId, @NotBlank String raw) {}
 
     @PostMapping
     public ResponseEntity<LogEvent> publish(@Valid @RequestBody PublishRequest req) {
-        LogEvent event = LogEvent.of(req.service(), req.level(), req.message(),
-                req.host() == null ? "manual" : req.host());
-        producer.send(event);   // 비동기 발행. 응답은 브로커 ack를 기다리지 않고 바로 돌려준다.
+        LogEvent event = normalizer.normalize("manual://" + req.deviceId() + ".log", -1, req.raw(), Instant.now());
+        producer.send(event);   // 비동기 발행. 응답은 브로커 ack 를 기다리지 않고 바로 돌려준다.
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(event);
     }
 
     @PostMapping("/generate")
-    public Map<String, Object> generate(@RequestParam(defaultValue = "100") int count) {
-        long elapsedMs = generator.generate(count);
-        return Map.of("requested", count, "elapsedMs", elapsedMs);
+    public Map<String, Object> generate(@RequestParam(defaultValue = "100") int count,
+                                        @RequestParam(defaultValue = "50") int devices) {
+        long elapsedMs = generator.generate(count, devices);
+        return Map.of("requested", count, "devices", devices, "elapsedMs", elapsedMs);
+    }
+
+    @PostMapping("/simulate")
+    public Map<String, Object> simulate(@RequestParam(defaultValue = "100") int lines) {
+        int written = simulator.writeBurst(lines);
+        return Map.of("written", written);
     }
 
     @GetMapping("/stats")
     public Map<String, Object> stats() {
-        return Map.of("consumed", consumer.consumedCount());
+        return Map.of(
+                "receivedFromFluentBit", ingest.receivedCount(),
+                "consumed", consumer.consumedCount());
     }
 }

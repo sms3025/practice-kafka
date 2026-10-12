@@ -1,5 +1,7 @@
 # Step 1. Producer / Consumer 기본 결과
 
+> 참고: Step 2에서 기업 명세서를 반영해 `LogEvent` 스키마가 `service/level/message/host`에서 `device_id/source/event_time/collected_at/offset/raw(+level, message)`로, 메시지 키가 `service`에서 `device_id`로, `POST /api/logs` 요청 형식이 `{deviceId, raw}`로 바뀌었다. 아래 설명의 원리는 그대로이며, 필드 이름만 바뀐 것으로 읽으면 된다.
+
 ## 만든 것
 
 Spring Boot 앱 하나에 프로듀서와 컨슈머를 함께 넣었다. 흐름은 다음과 같다.
