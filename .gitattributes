@@ -1,0 +1,6 @@
+# Windows에서 체크아웃해도 쉘 스크립트와 설정 파일은 LF를 유지한다.
+* text=auto
+*.sh text eol=lf
+gradlew text eol=lf
+*.bat text eol=crlf
+*.jar binary

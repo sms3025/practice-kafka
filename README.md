@@ -1,0 +1,48 @@
+# practice-kafka
+
+Apache Kafka를 처음 배우는 입장에서, 대용량 로그 처리 데모를 단계별로 만들어 보며 학습하는 프로젝트입니다.
+
+## 스택
+
+Java 25 · Spring Boot 4.1 · Spring for Apache Kafka 4.1 · Gradle 9.8 · Apache Kafka 4.2 (KRaft) · Docker Compose · Kafbat Kafka UI · Elasticsearch 9 + Kibana (Step 4~)
+
+## 빠른 시작
+
+```bash
+# 1. Kafka + Kafka UI 기동
+docker compose -f docker/docker-compose.yml up -d
+
+# 2. 앱 실행 (JDK 25가 없으면 Gradle이 자동으로 내려받는다)
+./gradlew bootRun            # Windows: gradlew.bat bootRun
+
+# 3. 로그 1000건 발행
+curl -X POST "http://localhost:8080/api/logs/generate?count=1000"
+```
+
+Kafka UI: http://localhost:8085
+
+## 사전 요구사항
+
+- Docker Desktop
+- JDK 17 이상 (Gradle 자체를 실행하는 용도. 컴파일/실행용 JDK 25는 Gradle이 `~/.gradle/jdks`에 자동 설치)
+- Git
+
+## 문서
+
+| 경로 | 내용 |
+|---|---|
+| [docs/plan/00-학습계획서.md](docs/plan/00-학습계획서.md) | 전체 단계 계획, 시나리오, 기술 선택 이유 |
+| [docs/concepts/](docs/concepts/) | 개념 정리 (Kafka 기본, Spring Kafka 구조, ...) |
+| [docs/result/](docs/result/) | 단계별 구현 설명 · 실행 확인 절차 · 배운 점 |
+
+## 진행 상황
+
+| 단계 | 내용 | 상태 |
+|---|---|---|
+| Step 0 | 단일 브로커 환경 + CLI 실습 | 완료 |
+| Step 1 | Producer / Consumer 기본, JSON 직렬화 | 완료 |
+| Step 2 | 파티션과 컨슈머 그룹, 리밸런스 | 예정 |
+| Step 3 | 멱등 프로듀서, 재시도, Dead Letter Topic | 예정 |
+| Step 4 | Elasticsearch 적재 + Kibana | 예정 |
+| Step 5 | 3브로커 클러스터, 복제와 장애 실험 | 예정 |
+| Step 6 | (선택) Kafka Streams 집계 | 예정 |

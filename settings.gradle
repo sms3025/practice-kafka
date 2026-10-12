@@ -1,0 +1,17 @@
+// Gradle 설정 파일: 프로젝트 이름과 플러그인 저장소를 정의한다.
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+plugins {
+    // JDK 자동 다운로드 플러그인.
+    // build.gradle의 toolchain(languageVersion = 25)에 맞는 JDK가 로컬에 없으면
+    // Gradle이 Adoptium(Temurin) 등에서 자동으로 내려받아 ~/.gradle/jdks 에 설치한다.
+    // 따라서 Java 25를 직접 설치하지 않아도 빌드가 가능하다.
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
+rootProject.name = 'practice-kafka'

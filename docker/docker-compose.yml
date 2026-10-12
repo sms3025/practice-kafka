@@ -1,0 +1,73 @@
+# =============================================================================
+# Step 0 ~ Step 3 용 로컬 인프라: 단일 브로커 Kafka (KRaft 모드) + Kafka UI
+#
+# 실행:   docker compose -f docker/docker-compose.yml up -d
+# 중지:   docker compose -f docker/docker-compose.yml down        (데이터 유지)
+#         docker compose -f docker/docker-compose.yml down -v     (데이터 삭제)
+# 로그:   docker compose -f docker/docker-compose.yml logs -f kafka
+# =============================================================================
+name: practice-kafka
+
+services:
+  kafka:
+    image: apache/kafka:4.2.2
+    container_name: kafka
+    hostname: kafka
+    ports:
+      # 호스트(내 PC)에서 접속하는 포트. Spring Boot 앱은 localhost:9092 로 붙는다.
+      - "9092:9092"
+    environment:
+      # ---- KRaft 모드 (ZooKeeper 없음) ----
+      # 이 노드 하나가 broker 역할과 controller(메타데이터 관리) 역할을 동시에 수행한다.
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:29093"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+
+      # ---- 리스너 ----
+      # PLAINTEXT      : 컨테이너 네트워크 내부용 (브로커 간, Kafka UI → 브로커)
+      # PLAINTEXT_HOST : 호스트(localhost)용. 앱이 접속하는 주소
+      # CONTROLLER     : 컨트롤러 쿼럼 통신용
+      KAFKA_LISTENERS: "PLAINTEXT://:19092,PLAINTEXT_HOST://:9092,CONTROLLER://:29093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:19092,PLAINTEXT_HOST://localhost:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+
+      # ---- 단일 브로커이므로 내부 토픽의 복제 계수를 1로 낮춘다 (기본값 3) ----
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+
+      # 학습 중 실수로 토픽을 자동 생성하지 않도록 끈다. (토픽은 코드/CLI로 명시적으로 만든다)
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+      # 클러스터 식별자. base64 형식의 UUID(22자)여야 한다. (kafka-storage.sh random-uuid 로 생성 가능)
+      CLUSTER_ID: "4L6g3nShT-eMCtK--X86sw"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  kafka-ui:
+    # 브라우저에서 토픽/파티션/컨슈머 그룹/메시지를 눈으로 확인하는 도구
+    image: ghcr.io/kafbat/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8085:8080"   # http://localhost:8085
+    environment:
+      KAFKA_CLUSTERS_0_NAME: "local-single"
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:19092"
+      DYNAMIC_CONFIG_ENABLED: "true"
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+volumes:
+  kafka-data:
