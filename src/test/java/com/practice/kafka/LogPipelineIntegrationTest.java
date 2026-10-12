@@ -32,7 +32,7 @@ class LogPipelineIntegrationTest {
         Instant now = Instant.now();
 
         producer.send(new LogEvent("dev-0001", "/var/log/devices/dev-0001.log", now, now, 0,
-                        "2026-10-12 14:03:21.123 [INFO] hello kafka", "INFO", "hello kafka"))
+                        "2026-10-12 14:03:21.123 [INFO] hello kafka", null, "INFO", "hello kafka"))
                 .get(); // 테스트에서는 브로커 ack 까지 기다린다.
 
         // 컨슈머는 별도 스레드에서 poll 하므로 잠시 기다리며 확인한다.

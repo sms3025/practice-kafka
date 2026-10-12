@@ -58,6 +58,6 @@ public class LogGenerator {
         Instant now = Instant.now();
         String raw = now + " [" + level + "] " + message;
         return new LogEvent(deviceId, "generator://" + deviceId, now, now,
-                fakeOffset.getAndIncrement(), raw, level, message);
+                fakeOffset.getAndIncrement(), raw, "GEN", level, message);
     }
 }

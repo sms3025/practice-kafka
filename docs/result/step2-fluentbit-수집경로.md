@@ -12,8 +12,9 @@ docker/devices/dev-0002.log ─┼─ Fluent Bit (tail) ─ HTTP POST ─▶ /in
 
 | 파일 | 역할 |
 |---|---|
-| `log/LogEvent.java` | 명세서 스키마. `device_id, source, event_time, collected_at, offset, raw` + 파싱 필드 `level, message`. `idempotencyKey()` 제공 |
-| `log/LogNormalizer.java` | 원문 한 줄 → `LogEvent`. 파일 경로에서 device_id 추출, 시각 문자열을 UTC `Instant`로 정규화, level 파싱. 실패하면 collected_at으로 대체 |
+| `log/LogEvent.java` | 명세서 스키마. `device_id, source, event_time, collected_at, offset, raw` + 파싱 필드 `category, level, message`. `idempotencyKey()` 제공 |
+| `log/LogNormalizer.java` | 원문 한 줄 → `LogEvent`. 경로(폴더명)에서 device_id 추출, 시각 문자열을 UTC `Instant`로 정규화, 레벨 통일. OHTHandlerLogger / UILogger / 단순 형식 세 가지 지원. 실패하면 collected_at으로 대체 |
+| `scripts/ohtsim.cmd`, `scripts/ohtsim.sh` | 기업 제공 OHT 로그 생성기(대외비, `tools/`에 둠)를 `docker/devices`에 쓰도록 실행 |
 | `ingest/FluentBitRecord.java` | Fluent Bit이 보내는 JSON 레코드 구조 |
 | `ingest/FluentBitIngestController.java` | `POST /ingest/fluentbit`. 묶음을 정규화해 Kafka에 넣고, 브로커 ack를 받은 뒤 200 응답 |
 | `simulator/DeviceLogSimulator.java` | 장비 로그 파일 생성기. `POST /api/logs/simulate?lines=N` 또는 `app.simulator.enabled=true`로 연속 생성 |
@@ -32,6 +33,10 @@ docker/devices/dev-0002.log ─┼─ Fluent Bit (tail) ─ HTTP POST ─▶ /in
 **시각 정규화.** 장비는 로컬 시각(`2026-10-12 14:03:21.123`)을 타임존 표기 없이 찍는다. `LogNormalizer`는 `app.ingest.device-zone`(기본 Asia/Seoul)을 가정해 UTC `Instant`로 바꾼다. 명세서 [배경]의 "시각 기준이 제각각"이라는 문제를 푸는 지점이며, 실제 프로젝트에서는 장비 종류별로 타임존과 형식을 설정으로 둬야 한다. 시각을 못 찾으면 버리지 않고 `collected_at`을 대신 넣는다. raw가 그대로 남아 있으므로 나중에 규칙을 고쳐 재처리할 수 있다.
 
 **Fluent Bit 대신 Spring이 정규화하는 이유.** Fluent Bit의 `[FILTER] parser`로 장비 쪽에서 파싱할 수도 있다. 하지만 1,000대 장비의 설정을 바꾸는 것보다 수집 서버 코드를 바꾸는 것이 쉽고, 정규식 버그가 나도 raw가 중앙에 있으면 복구할 수 있다. 에이전트는 최대한 멍청하게(읽어서 보내기만), 중앙은 똑똑하게 두는 것이 운영상 유리하다.
+
+## 기업 제공 로그 생성기 연동 (추가)
+
+기업이 제공한 OHT 차량 로그 생성기(`ohtsim.pyz`)의 출력 구조(`<장비ID>/OHTHandlerLogger/<계열>/*.txt`, `<장비ID>/UILogger/*.log`, 1시간 단위 파일, CRLF)에 맞춰 Fluent Bit 경로 패턴과 `LogNormalizer`를 확장했다. 생성기 3대 20분치 약 10만 줄로 파서를 돌려 100% 파싱을 확인했다. 생성기·사용법·생성 로그는 대외비이므로 저장소에 넣지 않으며(`.gitignore`), 사용 방법은 `docs/study/05-OHT-로그-연동.md`에 있다.
 
 ## 실행 절차
 

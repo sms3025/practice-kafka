@@ -31,13 +31,15 @@ Kafka UI: http://localhost:8085 · Fluent Bit 지표: http://localhost:2020/api/
 - Docker Desktop
 - JDK 17 이상 (Gradle 자체를 실행하는 용도. 컴파일/실행용 JDK 25는 Gradle이 `~/.gradle/jdks`에 자동 설치)
 - Git
+- Python 3.8 이상 (기업 제공 OHT 로그 생성기를 돌릴 때만. 생성기와 생성 로그는 **대외비**이며 저장소에 포함하지 않는다. `docs/study/05-OHT-로그-연동.md`)
 
 ## 문서
 
 | 경로 | 내용 |
 |---|---|
 | [docs/plan/00-학습계획서.md](docs/plan/00-학습계획서.md) | 전체 단계 계획, 시나리오, 기술 선택 이유 |
-| [docs/concepts/](docs/concepts/) | 개념 정리 (Kafka 기본, Spring Kafka 구조, ...) |
+| [docs/study/](docs/study/) | **학습 교재.** 처음 보는 사람 기준으로 구조, 코드 흐름, 설정, 실습을 순서대로 설명. `00-학습-가이드.md`부터 |
+| [docs/concepts/](docs/concepts/) | 개념 사전 (Kafka 기본, Spring Kafka 구조, 주변 도구) |
 | [docs/result/](docs/result/) | 단계별 구현 설명 · 실행 확인 절차 · 배운 점 |
 
 ## 진행 상황

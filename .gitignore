@@ -20,5 +20,13 @@ Thumbs.db
 *.log
 /logs/
 .env
-# 시뮬레이터가 만드는 장비 로그 (디렉터리는 .gitkeep 으로 유지)
-/docker/devices/*.log
+# 장비 로그 (시뮬레이터 출력 + 대외비 OHT 생성기 출력). 디렉터리는 .gitkeep 으로만 유지한다.
+/docker/devices/*
+!/docker/devices/.gitkeep
+
+### 대외비 자료는 절대 커밋하지 않는다 (기업 제공 로그 생성기와 그 출력, 사용법 문서)
+*.pyz
+/tools/
+/sim-logs/
+**/sim-logs/
+사용법.md
