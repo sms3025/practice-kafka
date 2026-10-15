@@ -88,4 +88,11 @@ class LogNormalizerTest {
         assertThat(normalizer.normalize("C:\\logs\\truck-12.log", 0, "x", collectedAt).deviceId())
                 .isEqualTo("truck-12");
     }
+
+    @Test
+    void deviceIdFromUriLikeSource() {
+        // POST /api/logs 가 넘기는 source. Windows 의 Paths.get 은 ':' 때문에 이 문자열을 거부한다.
+        assertThat(normalizer.normalize("manual://dev-0001.log", -1, "x", collectedAt).deviceId())
+                .isEqualTo("dev-0001");
+    }
 }

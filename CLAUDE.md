@@ -43,16 +43,19 @@ curl localhost:8080/api/logs/stats
 
 ## 문서 규칙 (코드 변경과 같은 커밋에)
 
+상세 형식·단계별 예정 산출물·완료 체크리스트는 `docs/plan/01-학습자료-제작-방침.md`를 따른다. 저장소 입구 문서는 `docs/README.md`이며 구성도(2.1)와 진행 상태(2.5)를 단계마다 맞춘다.
+
 - `docs/plan/`: 계획서. 단계 순서나 결정이 바뀌면 "결정 사항" 표에 날짜와 근거를 추가.
 - `docs/result/stepN-*.md`: 단계가 끝날 때 "만든 것 / 설계에서 눈여겨볼 것 / 실행 절차 / 확인해야 할 것 / 배운 점". 각 단계는 "코드 → docker로 실행 → Kafka UI·로그로 확인 → 문서" 순환.
 - `docs/study/`: 처음 보는 사람을 위한 교재. 새 개념·설정이 들어오면 해당 장에 "설명 → 코드 → 실습 → 확인 질문" 형식으로 보강. 06 워크북에 실습 항목 추가.
+- `docs/practice/`: 워크북 항목을 같은 번호로 풀어 쓴 따라 하기 안내(PowerShell 명령, 기대 화면). 워크북에 절을 붙이면 여기에 파일을 추가하고, 실측한 출력은 날짜와 함께 적는다.
 - `docs/concepts/`: 개념 사전. 새 도구가 들어오면 03에 추가.
 - 문체: 한국어 존댓말이 아닌 평서문("~한다"), 산문 위주, 리스트는 병렬 항목에만. 이모지 금지. 설정 항목마다 "왜"를 적는다.
 
 ## 다음 단계 (계획서 기준)
 
-Step 3 파티션·컨슈머 그룹·리밸런스 → Step 4 ClickHouse 적재(배치 리스너, ReplacingMergeTree 멱등키, TTL) + Grafana, Kafka 테이블 엔진과 비교 → Step 5 멱등 프로듀서·DLT·압축 → Step 6 3브로커·복제 → Step 7(선택) Streams. 새 단계를 시작하기 전에 사용자에게 결정이 필요한 선택지(예: 파티션 수, 저장소 테이블 설계)를 먼저 묻는다.
+Step 3 파티션·컨슈머 그룹·리밸런스 → Step 4 ClickHouse 적재(단독 체험 → 테이블 설계 → 배치 리스너 → Grafana 네 묶음. ReplacingMergeTree 멱등키, TTL) → Step 4+ 적재 경로 비교(직접 적재·비동기 INSERT·Kafka 경유·Kafka 테이블 엔진, 같은 입력으로 part 수·지연·장애 복구 측정) → Step 5 멱등 프로듀서·DLT·압축 → Step 6 3브로커·복제 → Step 7(선택) Streams. 새 단계를 시작하기 전에 사용자에게 결정이 필요한 선택지(예: 파티션 수, 저장소 테이블 설계)를 먼저 묻는다.
 
 ## 환경 메모
 
-사용자 PC는 Windows(Docker Desktop, IntelliJ). 로컬에 Java 25는 없고 Gradle이 자동 설치한다. Fluent Bit은 Windows 바인드 마운트 때문에 `Inotify_Watcher Off`(폴링)로 둔다. 이 저장소가 만들어진 세션에서는 Maven Central에 접근할 수 없어 Spring 연동 코드는 컴파일 검증 없이 작성됐다. IntelliJ에서 빌드 오류가 나면 그 부분부터 확인한다.
+사용자 PC는 Windows(Docker Desktop, IntelliJ). PATH에 Java는 없지만 IntelliJ 내장 JDK(`C:\Program Files\JetBrains\IntelliJ IDEA 2026.1.4\jbr`, 25.0.4)가 있어, 터미널에서는 `JAVA_HOME`을 이것으로 잡고 `gradlew.bat`을 돌린다. 툴체인 JDK는 Gradle이 필요하면 자동 설치한다. Fluent Bit은 Windows 바인드 마운트 때문에 `Inotify_Watcher Off`(폴링)로 둔다. 이 저장소가 만들어진 세션에서는 Maven Central에 접근할 수 없어 Spring 연동 코드가 컴파일 검증 없이 작성됐으나, 2026-10-13에 `./gradlew clean test`로 컴파일과 테스트 9건 통과를 확인했다. 2026-10-14~15에는 떠 있던 docker 환경에서 주요 경로(B1~B3, D1~D3, Kafka 정지 C8·D5)를 실행해 확인했고, 그 과정에서 버그 셋을 고쳤다(`docs/practice/README.md` 7절). 깨끗한 환경 재현은 아직이다. 터미널 명령은 PowerShell 기준으로 쓴다. Git Bash는 `docker exec`의 `/opt/...` 경로를 바꿔 버리므로 docker 명령에 쓰지 않는다. Python은 Store 바로가기만 있고 실제로는 설치돼 있지 않다(2026-10-15).

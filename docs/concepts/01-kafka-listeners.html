@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kafka 리스너 — 첫 접속 주소와 안내받는 주소</title>
+<style>
+:root{color-scheme:light;--bg:#f4f6fa;--paper:#fff;--ink:#17243a;--muted:#52627a;--line:#d6dfec;--blue:#235bce;--soft:#eaf0ff;--green:#147a59;--softgreen:#e5f4ed;--amber:#8b5306;--softamber:#fff1da;--red:#b42318;--softred:#fdeceb}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.75 system-ui,'Malgun Gothic',sans-serif}
+main{max-width:1140px;margin:auto;padding:32px 24px 70px}
+header{padding:28px 0}
+h1{font-size:clamp(28px,4vw,44px);line-height:1.3;margin:12px 0}
+h2{font-size:26px;line-height:1.4;margin:0 0 18px}
+h3{font-size:18px;margin:18px 0 8px}
+p{margin:10px 0 18px}
+a{color:var(--blue)}
+nav{display:flex;flex-wrap:wrap;gap:10px 22px;padding:16px 0;border-block:1px solid var(--line)}
+section{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:28px;margin-top:24px;scroll-margin-top:16px}
+.eyebrow{color:var(--blue);font-weight:650;letter-spacing:.06em}
+.muted{color:var(--muted)}
+.note{padding:14px 18px;background:var(--soft);border-left:4px solid var(--blue);margin:18px 0}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.card{border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:14px 0}
+.controls label{font-weight:600;margin-right:4px}
+button,select{font:inherit;border:1px solid var(--line);border-radius:8px;padding:9px 14px;color:var(--ink);background:var(--paper);min-height:44px}
+button{cursor:pointer}
+button.primary{background:var(--blue);color:#fff;border-color:var(--blue)}
+button[aria-pressed="true"]{background:var(--soft);border:2px solid var(--blue);font-weight:650}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,a:focus-visible,select:focus-visible{outline:3px solid var(--amber);outline-offset:3px}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#eef2f8;padding:16px 18px;border-radius:10px;font-size:14px;line-height:1.65;margin:10px 0}
+code{font-family:Consolas,monospace;overflow-wrap:anywhere}
+.table-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;text-align:left}
+td,th{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+summary{cursor:pointer;font-weight:600;padding:10px 0}
+details{border-bottom:1px solid var(--line)}
+footer{padding-top:30px;color:var(--muted)}
+.diagram{width:100%;height:auto;display:block;border:1px solid var(--line);border-radius:12px;background:#fbfcfe}
+.diagram text{font-family:system-ui,'Malgun Gothic',sans-serif;fill:var(--ink)}
+.diagram .zone{fill:none;stroke:#9fb0c8;stroke-width:2;stroke-dasharray:8 6}
+.diagram .zonelabel{font-size:17px;font-weight:700;fill:var(--muted)}
+.diagram .nodebox{fill:#fff;stroke:#9fb0c8;stroke-width:1.5}
+.diagram .hl .nodebox,.diagram .hl.door rect{fill:var(--soft);stroke:var(--blue);stroke-width:3}
+.diagram .door rect{fill:#fff;stroke:#7d8fa9;stroke-width:1.5}
+.diagram .door.controller rect{stroke-dasharray:5 4;fill:#f3f5f9}
+.diagram .door.controller text{fill:var(--muted)}
+.diagram .t-title{font-size:17px;font-weight:700;text-anchor:middle}
+.diagram .t-sub{font-size:13px;fill:var(--muted);text-anchor:middle}
+.diagram .t-small{font-size:13.5px}
+.diagram .t-card{font-size:14px;font-family:Consolas,monospace}
+.diagram .t-card.active{font-weight:700;fill:var(--green)}
+.diagram .route{fill:none;stroke:#c7d3e6;stroke-width:3}
+.diagram .route.req{stroke:var(--blue);stroke-width:3}
+.diagram .route.res{stroke:var(--green);stroke-width:3;stroke-dasharray:7 5}
+.diagram .route.bad{stroke:var(--red);stroke-width:3}
+.diagram .fail{fill:var(--red);font-weight:800;font-size:30px;text-anchor:middle}
+.diagram .failtxt{fill:var(--red);font-size:14px;font-weight:700}
+.diagram .packet-req{fill:var(--blue)}
+.diagram .packet-res{fill:var(--green)}
+.status{padding:16px 18px;border-radius:10px;background:var(--soft);border-left:5px solid var(--blue);min-height:120px}
+.status.ok{background:var(--softgreen);border-color:var(--green)}
+.status.fail{background:var(--softred);border-color:var(--red)}
+.status h3{margin:0 0 6px}
+.status p{margin:0}
+.holding{display:inline-block;margin-top:10px;padding:4px 12px;border-radius:999px;background:#fff;border:1px solid var(--line);font-family:Consolas,monospace;font-size:14px}
+ol.steps{padding-left:22px;margin:8px 0}
+ol.steps li{padding:2px 0;color:var(--muted)}
+ol.steps li.done{color:var(--ink)}
+ol.steps li.now{color:var(--blue);font-weight:700}
+ol.steps li.bad{color:var(--red);font-weight:700}
+.panel{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:22px;align-items:start;margin-top:8px}
+.k-name{color:var(--blue);font-weight:700}
+.k-host{color:var(--green);font-weight:700}
+.k-port{color:var(--amber);font-weight:700}
+.big{font-size:19px;line-height:1.7}
+.okc{color:var(--green);font-weight:650}
+.badc{color:var(--red);font-weight:650}
+[hidden]{display:none!important}
+@media(max-width:820px){.panel{grid-template-columns:1fr}}
+@media(max-width:650px){main{padding:16px 12px 40px}section{padding:20px 16px}.grid{grid-template-columns:1fr}h2{font-size:23px}td,th{padding:8px}}
+@media print{body{background:#fff}section{break-inside:avoid}button,select,.controls{display:none}nav{display:none}}
+</style>
+</head>
+<body><main>
+
+<header>
+<span class="eyebrow">PRACTICE KAFKA / 그림으로 읽는 개념 사전</span>
+<h1>첫 접속 주소와<br>안내받는 주소</h1>
+<p><code>KAFKA_LISTENERS</code>와 <code>KAFKA_ADVERTISED_LISTENERS</code>가 왜 둘이고, 각 항목이 무슨 뜻이며, 잘못 쓰면 어디서 끊기는지를 접속 과정을 한 단계씩 따라가며 본다.</p>
+<p class="muted">이 자료는 저장소의 <code>docker/docker-compose.yml</code>과 <code>application.properties</code>를 바탕으로 만든 학습용 모형이다. 화면의 IP와 로그는 이해를 돕기 위한 예시이며, 실제 실행 결과가 아니다. Docker 없이 브라우저에서 열 수 있다. 개념 전체 그림은 <a href="01-kafka-basics.html">Kafka 기초 HTML</a>을 먼저 본다.</p>
+</header>
+
+<nav aria-label="학습 순서">
+<a href="#one">1. 한 문장 요약</a>
+<a href="#map">2. 등장인물과 지도</a>
+<a href="#sim">3. 접속 흐름 따라가기</a>
+<a href="#syntax">4. 설정 한 줄 해부</a>
+<a href="#why">5. 왜 둘로 나누나</a>
+<a href="#check">6. 확인 질문</a>
+</nav>
+
+<section id="one">
+<span class="eyebrow">01 / 한 문장 요약</span>
+<h2>브로커는 손님이 어디서 왔는지 모른다</h2>
+<p class="big">브로커는 손님이 <strong>어느 문으로 들어왔는지</strong>만 안다. 그리고 그 문에 붙어 있는 명함을 그대로 건넨다. 손님은 다음부터 그 명함에 적힌 주소로 찾아온다.</p>
+<div class="grid">
+<div class="card"><h3>KAFKA_LISTENERS = 열어 둔 문</h3><p>브로커가 귀를 여는 위치다. "몇 번 포트에서 연결을 받는다"는 뜻이며, 문마다 이름표가 붙는다. 클라이언트에게 알려 주는 주소가 아니다.</p></div>
+<div class="card"><h3>KAFKA_ADVERTISED_LISTENERS = 문마다 붙인 명함</h3><p>그 문으로 들어온 손님에게 돌려주는 주소다. 클라이언트는 이 문자열을 그대로 받아 실제 데이터를 주고받을 때 쓴다. 그래서 <strong>클라이언트 입장에서 닿는 주소</strong>여야 한다.</p></div>
+</div>
+<div class="note">Kafka 클라이언트는 두 번 접속한다. 첫 번째는 <code>bootstrap-servers</code>로 접속해 "브로커들이 어디 있는지"를 묻는 접속이다. 두 번째는 그 답(명함)에 적힌 주소로 다시 접속해 메시지를 보내거나 읽는 접속이다. 첫 번째만 성공하고 두 번째가 실패하는 경우가 흔하다. 이 문서는 그 이유를 보여 준다.</div>
+</section>
+
+<section id="map">
+<span class="eyebrow">02 / 등장인물과 지도</span>
+<h2>같은 이름이 서 있는 곳마다 다른 곳을 가리킨다</h2>
+<p>이 저장소에는 브로커에 붙는 클라이언트가 둘 있다. 내 PC(Windows)에서 도는 <strong>Spring 앱</strong>과 docker 네트워크 안의 <strong>Kafka UI</strong> 컨테이너다. 둘은 서 있는 위치가 다르다. 그래서 <code>localhost</code>나 <code>kafka</code> 같은 이름을 해석한 결과도 다르다.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>이름</th><th>내 PC(Spring 앱)에서 해석하면</th><th>Kafka UI 컨테이너 안에서 해석하면</th></tr></thead>
+<tbody>
+<tr><td><code>localhost</code></td><td>내 PC 자신. compose의 <code>ports: "9092:9092"</code> 덕분에 9092 포트는 kafka 컨테이너로 이어진다</td><td>Kafka UI 컨테이너 자신. 컨테이너마다 자기만의 <code>localhost</code>가 있다. 브로커가 아니다</td></tr>
+<tr><td><code>kafka</code></td><td>모른다. Windows는 docker 서비스 이름을 알지 못한다</td><td>kafka 컨테이너. docker 내장 DNS가 compose 서비스 이름을 IP로 바꿔 준다</td></tr>
+</tbody></table></div>
+<p>이 표가 이 문서의 핵심이다. 명함에 <code>localhost:9092</code>를 적으면 Spring 앱에게는 맞고 Kafka UI에게는 틀리다. <code>kafka:19092</code>를 적으면 그 반대가 된다. 아래 시뮬레이터에서 직접 확인한다.</p>
+</section>
+
+<section id="sim">
+<span class="eyebrow">03 / 접속 흐름 따라가기</span>
+<h2>클라이언트와 설정을 고르고 한 단계씩 진행한다</h2>
+
+<div class="controls" role="group" aria-label="클라이언트 선택">
+<label>클라이언트</label>
+<button type="button" data-client="app" aria-pressed="true">Spring 앱 (내 PC)</button>
+<button type="button" data-client="ui" aria-pressed="false">Kafka UI (컨테이너)</button>
+</div>
+<div class="controls">
+<label for="scenario">설정</label>
+<select id="scenario">
+<option value="current">A. 지금 저장소 설정: 문 둘, 명함 둘</option>
+<option value="onlyLocal">B. 문 하나, 명함 localhost:9092</option>
+<option value="onlyKafka">C. 문 하나, 명함 kafka:9092</option>
+<option value="hostsFix">D. C + Windows hosts 파일에 "127.0.0.1 kafka" 추가</option>
+</select>
+</div>
+
+<pre id="config" aria-label="선택한 설정"></pre>
+
+<div>
+<svg class="diagram" id="svg" viewBox="0 0 1000 520" role="img" aria-labelledby="svg-title">
+<title id="svg-title">내 PC와 docker 네트워크, 브로커의 문과 명함, 클라이언트의 접속 경로</title>
+<rect class="zone" x="20" y="20" width="300" height="480" rx="16"/>
+<text class="zonelabel" x="40" y="52">내 PC (Windows)</text>
+<g id="n-app"><rect class="nodebox" x="50" y="200" width="230" height="90" rx="12"/>
+<text class="t-title" x="165" y="238">Spring 앱</text>
+<text class="t-sub" x="165" y="263">KafkaTemplate · @KafkaListener</text></g>
+<text class="t-small" x="40" y="400" font-weight="700">여기서 이름을 찾으면</text>
+<text class="t-small" x="40" y="425">localhost → 내 PC</text>
+<text class="t-small" x="40" y="450" id="pc-kafka">kafka → 찾을 수 없음</text>
+
+<g id="n-map"><rect class="nodebox" x="330" y="212" width="125" height="66" rx="10"/>
+<text class="t-title" x="392" y="240" style="font-size:15px">포트 매핑</text>
+<text class="t-sub" x="392" y="262">9092 → 9092</text></g>
+
+<rect class="zone" x="470" y="20" width="510" height="480" rx="16"/>
+<text class="zonelabel" x="490" y="52">docker 네트워크</text>
+<g id="n-kafka"><rect class="nodebox" x="640" y="70" width="320" height="300" rx="14"/>
+<text class="t-title" x="860" y="96" style="font-size:15px">kafka 컨테이너 (브로커)</text></g>
+
+<g id="n-ui"><rect class="nodebox" x="480" y="400" width="230" height="80" rx="12"/>
+<text class="t-title" x="595" y="435">Kafka UI</text>
+<text class="t-sub" x="595" y="460">관리 화면도 Kafka 클라이언트다</text></g>
+<text class="t-small" x="728" y="420" font-weight="700">여기서 이름을 찾으면</text>
+<text class="t-small" x="728" y="445">localhost → Kafka UI 자신</text>
+<text class="t-small" x="728" y="470">kafka → kafka 컨테이너</text>
+
+<g id="dyn"></g>
+</svg>
+<p class="muted">파란 실선은 요청, 초록 점선은 브로커가 돌려준 응답(명함), 빨간 X는 연결이 끊긴 곳이다. 문 오른쪽 글자가 그 문에 붙은 명함이다.</p>
+</div>
+
+<div class="panel">
+<div>
+<div class="controls">
+<button type="button" id="prev">이전</button>
+<button type="button" id="next" class="primary">다음 단계</button>
+<button type="button" id="play">자동 재생</button>
+<button type="button" id="reset">처음부터</button>
+</div>
+<div class="status" id="status" aria-live="polite"><h3 id="st-title"></h3><p id="st-text"></p><span class="holding" id="holding"></span></div>
+<pre id="meta" hidden></pre>
+</div>
+<div>
+<h3 style="margin-top:0">진행 단계</h3>
+<ol class="steps" id="steps"></ol>
+<h3>클라이언트 로그 (예시)</h3>
+<pre id="log"></pre>
+</div>
+</div>
+</section>
+
+<section id="syntax">
+<span class="eyebrow">04 / 설정 한 줄 해부</span>
+<h2>URL처럼 생겼지만 URL이 아니다</h2>
+<p>두 설정은 모두 <code>이름://호스트:포트</code> 항목을 쉼표로 이어 쓴 목록이다. 항목 하나가 문 하나다. 색으로 나눠 읽으면 이렇다.</p>
+<pre>KAFKA_LISTENERS:            "<span class="k-name">PLAINTEXT</span>://<span class="k-host"></span>:<span class="k-port">19092</span>,<span class="k-name">PLAINTEXT_HOST</span>://<span class="k-host"></span>:<span class="k-port">9092</span>,<span class="k-name">CONTROLLER</span>://<span class="k-host"></span>:<span class="k-port">29093</span>"
+KAFKA_ADVERTISED_LISTENERS: "<span class="k-name">PLAINTEXT</span>://<span class="k-host">kafka</span>:<span class="k-port">19092</span>,<span class="k-name">PLAINTEXT_HOST</span>://<span class="k-host">localhost</span>:<span class="k-port">9092</span>"</pre>
+<div class="table-wrap"><table>
+<thead><tr><th>조각</th><th>LISTENERS에서의 뜻</th><th>ADVERTISED에서의 뜻</th></tr></thead>
+<tbody>
+<tr><td><span class="k-name">이름</span></td><td colspan="2">문에 붙이는 <strong>이름표</strong>다. <code>http://</code>처럼 프로토콜로 보이지만 마음대로 짓는 라벨이다. 두 설정의 항목은 이 이름표로 짝지어진다.</td></tr>
+<tr><td><span class="k-host">호스트</span></td><td>어느 네트워크 카드에서 연결을 받을지. <strong>비워 두면 모든 곳에서 받는다</strong>(0.0.0.0). 그래서 <code>://:19092</code>처럼 호스트 칸이 비어 있다</td><td>클라이언트가 찾아올 <strong>이름</strong>. 클라이언트가 이 글자를 그대로 받아 이름을 찾고 접속한다</td></tr>
+<tr><td><span class="k-port">포트</span></td><td>컨테이너 안에서 여는 포트 번호</td><td>클라이언트가 접속할 포트 번호. 포트 매핑을 거친다면 바깥쪽 번호를 적는다</td></tr>
+</tbody></table></div>
+
+<h3>이름표로 짝지어 읽기</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>이름표</th><th>열어 둔 문 (LISTENERS)</th><th>명함 (ADVERTISED)</th><th>쓰는 쪽</th></tr></thead>
+<tbody>
+<tr><td><code>PLAINTEXT</code></td><td>컨테이너 19092</td><td><code>kafka:19092</code></td><td>docker 네트워크 안: Kafka UI, Step 6의 다른 브로커</td></tr>
+<tr><td><code>PLAINTEXT_HOST</code></td><td>컨테이너 9092</td><td><code>localhost:9092</code></td><td>내 PC: Spring 앱</td></tr>
+<tr><td><code>CONTROLLER</code></td><td>컨테이너 29093</td><td>없음</td><td>KRaft 컨트롤러끼리만 쓰는 내부용 문. 일반 클라이언트에게 알려 주지 않는다</td></tr>
+</tbody></table></div>
+
+<h3>이름표가 프로토콜이 아니라는 증거</h3>
+<p>각 이름표가 실제로 어떤 프로토콜을 쓰는지는 다른 줄에서 따로 정한다. <code>KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"</code>는 "이름표:프로토콜" 목록이다. <code>PLAINTEXT:PLAINTEXT</code>는 PLAINTEXT라는 이름의 문이 PLAINTEXT(암호화 없음) 프로토콜을 쓴다는 뜻이다. 이름표와 프로토콜 이름이 같아서 헷갈릴 뿐이다. 아래처럼 이름표만 바꿔도 똑같이 동작하며, 이쪽이 읽기 쉽다.</p>
+<pre>KAFKA_LISTENERS:                      "<span class="k-name">INTERNAL</span>://:19092,<span class="k-name">EXTERNAL</span>://:9092,<span class="k-name">CONTROLLER</span>://:29093"
+KAFKA_ADVERTISED_LISTENERS:           "<span class="k-name">INTERNAL</span>://kafka:19092,<span class="k-name">EXTERNAL</span>://localhost:9092"
+KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "<span class="k-name">INTERNAL</span>:PLAINTEXT,<span class="k-name">EXTERNAL</span>:PLAINTEXT,<span class="k-name">CONTROLLER</span>:PLAINTEXT"
+KAFKA_INTER_BROKER_LISTENER_NAME:     "<span class="k-name">INTERNAL</span>"</pre>
+
+<h3>포트 매핑과 명함의 관계</h3>
+<p>Spring 앱의 명함이 <code>localhost:9092</code>인 것은 compose의 <code>ports: "9092:9092"</code>(내 PC 포트:컨테이너 포트)가 내 PC의 9092를 컨테이너의 9092로 이어 주기 때문이다. 이 줄을 <code>"19999:9092"</code>로 바꾸면 내 PC에서는 19999로 들어가야 한다. 따라서 명함도 <code>localhost:19999</code>로 바꿔야 한다. 문(LISTENERS)은 컨테이너 안쪽 번호, 명함(ADVERTISED)은 클라이언트가 실제로 닿는 바깥쪽 번호다.</p>
+
+<h3>환경변수 이름이 설정 이름으로 바뀌는 규칙</h3>
+<p><code>apache/kafka</code> 이미지는 <code>KAFKA_</code>로 시작하는 환경변수를 Kafka 설정 파일 항목으로 바꿔 넣는다. 접두어 <code>KAFKA_</code>를 떼고, 소문자로 바꾸고, <code>_</code>를 <code>.</code>으로 바꾼다. <code>KAFKA_LISTENERS</code>는 <code>listeners</code>, <code>KAFKA_ADVERTISED_LISTENERS</code>는 <code>advertised.listeners</code>가 된다. Kafka 공식 문서에서는 오른쪽 이름으로 찾는다.</p>
+</section>
+
+<section id="why">
+<span class="eyebrow">05 / 왜 둘로 나누나</span>
+<h2>문 하나에는 명함도 하나뿐이다</h2>
+<p>아래 표는 위 시뮬레이터를 네 가지 설정과 두 클라이언트로 모두 돌린 결과다. 실패한 칸에는 끊긴 단계를 적었다.</p>
+<div class="table-wrap"><table id="matrix"><thead><tr><th>설정</th><th>Spring 앱 (내 PC)</th><th>Kafka UI (컨테이너)</th></tr></thead><tbody></tbody></table></div>
+<p>B와 C는 문이 하나라서 명함도 하나다. 그 명함 주소는 한쪽 위치에서만 통하므로 둘 중 하나가 반드시 깨진다. 둘 다 살리는 방법은 두 가지다. 위치별로 문과 명함을 따로 두는 A가 하나고, 양쪽에서 같은 곳을 가리키는 이름을 만드는 D가 다른 하나다. D는 이 저장소를 받는 모든 사람이 자기 PC의 hosts 파일을 고쳐야 한다. 이 저장소는 "clone하고 <code>docker compose up</code>만 하면 된다"를 우선해 A를 택했다.</p>
+<div class="note">운영 환경에서는 일부러 문을 나눈다. 브로커가 여러 대면 브로커끼리 복제할 때 <code>localhost</code>를 쓸 수 없다. 각자 자기 자신을 가리키기 때문이다. 그래서 내부 이름(<code>kafka-1:19092</code> 등)을 쓰는 내부 문이 따로 필요하다(<code>KAFKA_INTER_BROKER_LISTENER_NAME</code>). 문이 나뉘어 있으면 문마다 보안 프로토콜도 다르게 걸 수 있다. 내부 복제는 사설망에서 암호화 없이 하고, 외부 클라이언트 문에만 <code>SASL_SSL</code>을 거는 식이다. 실무 설정이 대개 <code>INTERNAL</code>, <code>EXTERNAL</code>, <code>CONTROLLER</code> 세 문을 두는 이유다. 이 저장소의 <code>PLAINTEXT</code>, <code>PLAINTEXT_HOST</code>, <code>CONTROLLER</code>가 바로 이 구조다.</div>
+</section>
+
+<section id="check">
+<span class="eyebrow">06 / 확인 질문</span>
+<h2>답을 먼저 말해 보고 펼친다</h2>
+<details><summary>1. B 설정에서 Kafka UI는 몇 번째 단계까지 성공하는가? 왜 그 다음에 실패하는가?</summary>
+<p>첫 문 도착과 메타데이터 수신까지는 성공한다. <code>kafka:9092</code>로 이름을 찾고 문에 닿는 데에는 문제가 없다. 실패는 명함 <code>localhost:9092</code>로 다시 접속할 때 난다. 컨테이너 안의 <code>localhost</code>는 Kafka UI 자신이고, 그곳 9092에는 브로커가 없다. "bootstrap은 되는데 그 다음이 안 된다"의 전형이다.</p></details>
+<details><summary>2. <code>KAFKA_LISTENERS</code>의 호스트 칸은 비어 있는데, <code>KAFKA_ADVERTISED_LISTENERS</code>의 호스트 칸은 왜 비우면 안 되는가?</summary>
+<p>LISTENERS의 호스트는 브로커가 연결을 받을 위치라서, 비우면 "어디로 오든 다 받는다"는 뜻이 된다. ADVERTISED의 호스트는 클라이언트에게 건네는 주소다. 비어 있으면 클라이언트가 어디로 가야 할지 알 수 없다.</p></details>
+<details><summary>3. compose의 포트 매핑을 <code>"19999:9092"</code>로 바꾸면 무엇을 같이 바꿔야 하는가?</summary>
+<p>Spring 앱의 <code>spring.kafka.bootstrap-servers</code>를 <code>localhost:19999</code>로 바꿔야 한다. 명함 <code>PLAINTEXT_HOST://localhost:9092</code>도 <code>localhost:19999</code>로 바꿔야 한다. LISTENERS의 <code>PLAINTEXT_HOST://:9092</code>는 컨테이너 안쪽 번호라 그대로 둔다.</p></details>
+<details><summary>4. 브로커가 세 대가 되면(Step 6) 명함은 몇 장이 되고, 무엇이 달라지는가?</summary>
+<p>브로커마다 자기 문과 명함을 가진다. 내부 명함은 <code>kafka-1:19092</code>, <code>kafka-2:19092</code>처럼 브로커마다 다르다. 외부 명함도 브로커마다 다른 포트(<code>localhost:9092</code>, <code>localhost:9093</code> 등)가 된다. 메타데이터 응답에는 세 브로커의 명함이 모두 담기고, 클라이언트는 파티션 리더가 있는 브로커의 명함으로 각각 접속한다.</p></details>
+<p>직접 해 보려면 <a href="../study/06-실습-워크북.md">실습 워크북</a> A5(명함 주소 바꿔 보기)를 진행한다. 글로 된 설명은 <a href="../study/01-환경과-프로젝트-구조.md">study/01</a> 4절에 있다.</p>
+</section>
+
+<footer>이 문서는 학습용 모형이다. 단계 구분은 Kafka 클라이언트의 실제 동작(bootstrap 접속 → 메타데이터 수신 → 리더 브로커 접속)을 따르지만, IP와 로그 문구는 예시다.</footer>
+
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const SVGNS = 'http://www.w3.org/2000/svg';
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const CONTROLLER = {name: 'CONTROLLER', port: 29093, controller: true};
+const SCENARIOS = {
+  current: {
+    label: 'A. 문 둘, 명함 둘 (지금 설정)',
+    listeners: [{name: 'PLAINTEXT', port: 19092}, {name: 'PLAINTEXT_HOST', port: 9092}, CONTROLLER],
+    advertised: {PLAINTEXT: 'kafka:19092', PLAINTEXT_HOST: 'localhost:9092'},
+    bootstrap: {app: 'localhost:9092', ui: 'kafka:19092'},
+    hosts: false
+  },
+  onlyLocal: {
+    label: 'B. 문 하나, 명함 localhost:9092',
+    listeners: [{name: 'PLAINTEXT', port: 9092}, CONTROLLER],
+    advertised: {PLAINTEXT: 'localhost:9092'},
+    bootstrap: {app: 'localhost:9092', ui: 'kafka:9092'},
+    hosts: false
+  },
+  onlyKafka: {
+    label: 'C. 문 하나, 명함 kafka:9092',
+    listeners: [{name: 'PLAINTEXT', port: 9092}, CONTROLLER],
+    advertised: {PLAINTEXT: 'kafka:9092'},
+    bootstrap: {app: 'localhost:9092', ui: 'kafka:9092'},
+    hosts: false
+  },
+  hostsFix: {
+    label: 'D. C + hosts 파일',
+    listeners: [{name: 'PLAINTEXT', port: 9092}, CONTROLLER],
+    advertised: {PLAINTEXT: 'kafka:9092'},
+    bootstrap: {app: 'localhost:9092', ui: 'kafka:9092'},
+    hosts: true
+  }
+};
+const CLIENTS = {
+  app: {label: 'Spring 앱', topic: 'Spring 앱은', where: '내 PC(Windows)', node: 'n-app', logPrefix: '[Producer clientId=producer-1]'},
+  ui: {label: 'Kafka UI', topic: 'Kafka UI는', where: 'docker 네트워크 안의 컨테이너', node: 'n-ui', logPrefix: '[AdminClient clientId=kafka-ui-admin]'}
+};
+
+const DOOR_Y = {9092: 245, 19092: 136, 29093: 326};
+const doorY = port => DOOR_Y[port] ?? 180;
+
+function parseAddr(addr) {
+  const i = addr.lastIndexOf(':');
+  return {host: addr.slice(0, i), port: Number(addr.slice(i + 1))};
+}
+
+// 클라이언트 위치(loc)에서 이름(host)을 찾았을 때 어디를 가리키는가
+function resolve(loc, host, sc) {
+  if (loc === 'app') {
+    if (host === 'localhost') return {target: 'pc', ip: '127.0.0.1', desc: '내 PC 자신'};
+    if (host === 'kafka') return sc.hosts ? {target: 'pc', ip: '127.0.0.1', desc: 'hosts 파일에 적어 둔 127.0.0.1, 즉 내 PC'} : null;
+  } else {
+    if (host === 'localhost') return {target: 'ui', ip: '127.0.0.1', desc: 'Kafka UI 컨테이너 자신'};
+    if (host === 'kafka') return {target: 'kafka', ip: '172.18.0.2 (예시)', desc: 'docker 내장 DNS가 알려 준 kafka 컨테이너'};
+  }
+  return null;
+}
+
+function findDoor(sc, port) {
+  return sc.listeners.find(l => l.port === port && !l.controller);
+}
+
+// 해석된 대상(r)의 port로 연결하면 어느 문에 닿는가
+function connect(r, port, sc) {
+  if (r.target === 'pc') {
+    if (port !== 9092) return {ok: false, route: 'pcmiss', reason: `내 PC의 ${port} 포트에는 아무 프로그램도 없다. compose가 컨테이너로 이어 둔 포트는 9092 하나뿐이다.`};
+    const d = findDoor(sc, 9092);
+    return d ? {ok: true, route: 'mapping', door: d} : {ok: false, route: 'pcmiss', reason: '컨테이너 9092에 열린 문이 없다.'};
+  }
+  if (r.target === 'kafka') {
+    const d = findDoor(sc, port);
+    return d ? {ok: true, route: 'direct', door: d} : {ok: false, route: 'kafkamiss', reason: `kafka 컨테이너의 ${port} 포트에는 열린 문이 없다.`};
+  }
+  return {ok: false, route: 'self', reason: 'Kafka UI 컨테이너 자신의 포트로 갔다. 그곳에는 브로커가 없다.'};
+}
+
+function routePoints(loc, conn, port) {
+  if (loc === 'app') {
+    if (conn.route === 'mapping') return {pts: [[280, 245], [330, 245], [455, 245], [615, 245]]};
+    if (conn.route === 'pcmiss') return {pts: [[280, 245], [330, 245]], fail: [392, 200]};
+    return {pts: [[280, 245]], fail: [165, 185]};
+  }
+  if (conn.route === 'direct') { const y = doorY(port); return {pts: [[575, 400], [575, y], [615, y]]}; }
+  if (conn.route === 'kafkamiss') return {pts: [[575, 400], [575, 180], [630, 180]], fail: [600, 170]};
+  if (conn.route === 'self') return {pts: [[505, 400], [505, 380], [545, 380], [545, 400]], fail: [525, 372]};
+  return {pts: [[595, 400]], fail: [595, 385]};
+}
+
+function simulate(clientKey, scKey) {
+  const sc = SCENARIOS[scKey], c = CLIENTS[clientKey], loc = clientKey;
+  const steps = [];
+  const fail = (s, logLine) => { s.status = 'fail'; s.log = logLine; steps.push(s); return {steps, ok: false, failAt: steps.length, reason: s.short}; };
+
+  const b = sc.bootstrap[clientKey], bAddr = parseAddr(b);
+  steps.push({title: '1. 첫 접속 주소를 꺼낸다', text: `${c.topic} ${c.where}에 있다. 설정에 적힌 bootstrap 주소 ${b}를 들고 시작한다.`, holding: b, hl: [c.node], log: `bootstrap.servers = ${b}`});
+
+  const r1 = resolve(loc, bAddr.host, sc);
+  if (!r1) return fail({title: '2. 이름을 IP로 바꾼다', text: `${c.where}에서는 ${bAddr.host}라는 이름을 찾을 수 없다.`, short: '2단계: 이름 해석 실패', holding: b, hl: [c.node], marker: routePoints(loc, {route: 'none'}).fail}, `WARN ${c.logPrefix} Couldn't resolve server ${b} from bootstrap.servers`);
+  steps.push({title: '2. 이름을 IP로 바꾼다', text: `${c.where}에서 ${bAddr.host}를 찾으면 ${r1.ip}가 나온다. 가리키는 곳은 "${r1.desc}"이다.`, holding: `${bAddr.host} → ${r1.ip}`, hl: [c.node], log: `${bAddr.host} 해석 → ${r1.ip}`});
+
+  const c1 = connect(r1, bAddr.port, sc);
+  const rp1 = routePoints(loc, c1, bAddr.port);
+  if (!c1.ok) return fail({title: '3. 첫 문에 도착한다', text: c1.reason, short: '3단계: 첫 접속 실패', holding: b, hl: [c.node], path: rp1.pts, kind: 'bad', marker: rp1.fail}, `WARN ${c.logPrefix} Connection to node -1 (${bAddr.host}/${r1.ip}:${bAddr.port}) could not be established.`);
+  const via = c1.route === 'mapping'
+    ? `내 PC의 9092로 보낸 연결이 포트 매핑(9092:9092)을 지나 kafka 컨테이너의 9092 문에 닿는다.`
+    : `docker 네트워크 안에서 kafka 컨테이너의 ${bAddr.port} 문에 바로 닿는다.`;
+  steps.push({title: '3. 첫 문에 도착한다', text: `${via} 이 문의 이름표는 ${c1.door.name}다.`, holding: b, hl: [c.node, c1.route === 'mapping' ? 'n-map' : null, 'door-' + c1.door.port], path: rp1.pts, kind: 'req', log: `연결 성공: ${b} (브로커의 ${c1.door.name} 문)`});
+
+  const card = sc.advertised[c1.door.name], cAddr = parseAddr(card);
+  steps.push({
+    title: '4. 메타데이터를 받는다 (명함)',
+    text: `클라이언트가 "app-logs 파티션의 리더는 어느 브로커이고, 그 브로커 주소는 무엇인가"를 묻는다. 브로커는 손님이 어디서 왔는지 모른다. ${c1.door.name} 문으로 들어왔다는 것만 알고, 그 문의 명함 ${card}를 그대로 적어 보낸다. 클라이언트는 이제 bootstrap 주소 대신 이 주소를 쓴다.`,
+    holding: card, hl: [c.node, 'door-' + c1.door.port], path: rp1.pts.slice().reverse(), kind: 'res', activeCard: c1.door.name,
+    meta: `MetadataResponse (요약)\n  brokers: [ { node_id: 1, host: "${cAddr.host}", port: ${cAddr.port} } ]\n  topics : app-logs\n           partition 0, 1, 2 → leader = node 1`,
+    log: `메타데이터 수신: node 1 = ${card}`
+  });
+
+  const r2 = resolve(loc, cAddr.host, sc);
+  if (!r2) return fail({title: '5. 명함 주소를 IP로 바꾼다', text: `명함에는 ${cAddr.host}라고 적혀 있다. 그런데 ${c.where}에서는 ${cAddr.host}라는 이름을 찾을 수 없다. 첫 접속은 성공했는데 실제 전송이 안 되는 전형적인 상황이다. 계속 재시도하다 결국 타임아웃이 난다.`, short: '5단계: 명함 주소 이름 해석 실패', holding: card, hl: [c.node], marker: routePoints(loc, {route: 'none'}).fail, activeCard: c1.door.name}, `WARN ${c.logPrefix} Error connecting to node ${card} (id: 1 rack: null)\njava.net.UnknownHostException: ${cAddr.host}\n... (재시도 반복)\nERROR send failed: org.apache.kafka.common.errors.TimeoutException`);
+  steps.push({title: '5. 명함 주소를 IP로 바꾼다', text: `명함의 ${cAddr.host}를 ${c.where}에서 찾으면 ${r2.ip}가 나온다. 가리키는 곳은 "${r2.desc}"이다.`, holding: `${cAddr.host} → ${r2.ip}`, hl: [c.node], activeCard: c1.door.name, log: `${cAddr.host} 해석 → ${r2.ip}`});
+
+  const c2 = connect(r2, cAddr.port, sc);
+  const rp2 = routePoints(loc, c2, cAddr.port);
+  if (!c2.ok) return fail({title: '6. 명함 주소로 다시 접속한다', text: `${c2.reason} 명함 주소가 ${c.label}의 위치에서는 브로커를 가리키지 않는다. 첫 접속은 성공했는데 실제 전송이 안 되는 전형적인 상황이다.`, short: '6단계: 명함 주소 접속 실패', holding: card, hl: [c.node], path: rp2.pts, kind: 'bad', marker: rp2.fail, activeCard: c1.door.name}, `WARN ${c.logPrefix} Connection to node 1 (${cAddr.host}/${r2.ip}:${cAddr.port}) could not be established. Node may not be available.\n... (재시도 반복)\nERROR org.apache.kafka.common.errors.TimeoutException`);
+  const work = clientKey === 'app'
+    ? 'ProduceRequest(app-logs, key=장비 ID)로 메시지를 보내고 FetchRequest로 읽는다.'
+    : 'Kafka UI가 토픽 목록, 파티션, 컨슈머 그룹을 조회해 화면에 그린다.';
+  steps.push({title: '6. 명함 주소로 다시 접속해 데이터를 주고받는다', text: `명함 주소 ${card}가 다시 ${c2.door.name} 문에 닿는다. ${work} 접속 성공.`, holding: card, hl: [c.node, c2.route === 'mapping' ? 'n-map' : null, 'door-' + c2.door.port], path: rp2.pts, kind: 'req', status: 'ok', activeCard: c1.door.name, log: `연결 성공: node 1 (${card})\n${clientKey === 'app' ? 'send app-logs → partition 1, offset 42 (예시)' : 'describeTopics app-logs → 3 partitions'}`});
+  return {steps, ok: true};
+}
+
+// ---------- 렌더링 ----------
+let clientKey = 'app', scKey = 'current', idx = 0, sim = null, timer = null, anim = null;
+
+function el(tag, attrs, text) {
+  const e = document.createElementNS(SVGNS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+function drawConfig() {
+  const sc = SCENARIOS[scKey];
+  const lis = sc.listeners.map(l => `${l.name}://:${l.port}`).join(',');
+  const adv = Object.entries(sc.advertised).map(([n, a]) => `${n}://${a}`).join(',');
+  let t = `# docker/docker-compose.yml (kafka 서비스)\nKAFKA_LISTENERS:            "${lis}"\nKAFKA_ADVERTISED_LISTENERS: "${adv}"\n\n# 클라이언트 쪽 첫 접속 주소\nspring.kafka.bootstrap-servers=${sc.bootstrap.app}      # Spring 앱 (application.properties)\nKAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "${sc.bootstrap.ui}"   # Kafka UI (compose)`;
+  if (scKey !== 'current') t += `\n# 문이 하나뿐인 설정에서는 Kafka UI도 kafka:9092로 붙는다고 가정한다`;
+  if (sc.hosts) t += `\n\n# C:\\Windows\\System32\\drivers\\etc\\hosts\n127.0.0.1 kafka`;
+  $('config').textContent = t;
+  $('pc-kafka').textContent = sc.hosts ? 'kafka → 내 PC (hosts 파일)' : 'kafka → 찾을 수 없음';
+}
+
+function drawDiagram(step) {
+  const sc = SCENARIOS[scKey], dyn = $('dyn');
+  if (anim) { cancelAnimationFrame(anim); anim = null; }
+  dyn.replaceChildren();
+  ['n-app', 'n-ui', 'n-map', 'n-kafka'].forEach(id => $(id).classList.remove('hl'));
+  (step.hl || []).forEach(id => { if (id && $(id)) $(id).classList.add('hl'); });
+
+  for (const l of sc.listeners) {
+    const y = doorY(l.port);
+    const g = el('g', {id: 'door-' + l.port, class: 'door' + (l.controller ? ' controller' : '') + ((step.hl || []).includes('door-' + l.port) ? ' hl' : '')});
+    g.append(el('rect', {x: 615, y: y - 26, width: 155, height: 52, rx: 8}));
+    g.append(el('text', {x: 692, y: y - 4, 'text-anchor': 'middle', 'font-size': 13.5, 'font-weight': 700}, l.name));
+    g.append(el('text', {x: 692, y: y + 15, 'text-anchor': 'middle', 'font-size': 13}, '문 :' + l.port));
+    dyn.append(g);
+    const card = sc.advertised[l.name];
+    dyn.append(el('text', {x: 782, y: y - 3, class: 't-card' + (step.activeCard === l.name ? ' active' : ''), 'font-size': 12}, '명함'));
+    dyn.append(el('text', {x: 782, y: y + 16, class: 't-card' + (step.activeCard === l.name ? ' active' : '')}, card || '(없음)'));
+  }
+
+  if (step.path && step.path.length > 1) {
+    const d = 'M' + step.path.map(p => p.join(',')).join(' L');
+    const path = el('path', {d, class: 'route ' + step.kind});
+    dyn.append(path);
+    const dot = el('circle', {r: 9, class: step.kind === 'res' ? 'packet-res' : 'packet-req'});
+    if (step.kind !== 'bad') dyn.append(dot);
+    const len = path.getTotalLength();
+    const place = f => { const p = path.getPointAtLength(len * f); dot.setAttribute('cx', p.x); dot.setAttribute('cy', p.y); };
+    if (reduceMotion || step.kind === 'bad') { place(1); }
+    else {
+      const t0 = performance.now(), dur = 1100;
+      const tick = now => { const f = Math.min(1, (now - t0) / dur); place(f); if (f < 1) anim = requestAnimationFrame(tick); };
+      anim = requestAnimationFrame(tick);
+    }
+  }
+  if (step.marker) {
+    const [x, y] = step.marker;
+    dyn.append(el('text', {x, y, class: 'fail'}, 'X'));
+    dyn.append(el('text', {x: x + 18, y: y - 8, class: 'failtxt', 'text-anchor': 'start'}, '여기서 끊김'));
+  }
+}
+
+function render() {
+  const steps = sim.steps, step = steps[idx];
+  const last = idx === steps.length - 1;
+  const box = $('status');
+  box.className = 'status' + (step.status === 'fail' ? ' fail' : step.status === 'ok' ? ' ok' : '');
+  $('st-title').textContent = step.title + (step.status === 'fail' ? ' — 실패' : step.status === 'ok' ? ' — 성공' : '');
+  $('st-text').textContent = step.text;
+  $('holding').textContent = '손에 든 주소: ' + step.holding;
+  $('meta').hidden = !step.meta;
+  $('meta').textContent = step.meta || '';
+  $('log').textContent = steps.slice(0, idx + 1).map(s => s.log).join('\n');
+
+  const ol = $('steps');
+  ol.replaceChildren();
+  const names = ['첫 접속 주소 꺼내기', '이름 해석', '첫 문 도착', '메타데이터(명함) 수신', '명함 주소 이름 해석', '명함 주소로 재접속'];
+  names.forEach((n, i) => {
+    const li = document.createElement('li');
+    li.textContent = n;
+    if (i < steps.length) {
+      if (i === idx) li.className = steps[i].status === 'fail' ? 'bad' : 'now';
+      else if (i < idx) li.className = 'done';
+    }
+    if (!sim.ok && i >= steps.length) li.textContent += ' (도달하지 못함)';
+    ol.append(li);
+  });
+
+  $('prev').disabled = idx === 0;
+  $('next').disabled = last;
+  drawDiagram(step);
+}
+
+function restart() {
+  stop();
+  sim = simulate(clientKey, scKey);
+  idx = 0;
+  drawConfig();
+  render();
+}
+
+function stop() {
+  if (timer) { clearInterval(timer); timer = null; }
+  $('play').textContent = '자동 재생';
+}
+
+document.querySelectorAll('[data-client]').forEach(b => b.addEventListener('click', () => {
+  clientKey = b.dataset.client;
+  document.querySelectorAll('[data-client]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  restart();
+}));
+$('scenario').addEventListener('change', e => { scKey = e.target.value; restart(); });
+$('next').addEventListener('click', () => { stop(); if (idx < sim.steps.length - 1) { idx++; render(); } });
+$('prev').addEventListener('click', () => { stop(); if (idx > 0) { idx--; render(); } });
+$('reset').addEventListener('click', restart);
+$('play').addEventListener('click', () => {
+  if (timer) { stop(); return; }
+  if (idx >= sim.steps.length - 1) { idx = 0; render(); }
+  $('play').textContent = '멈춤';
+  timer = setInterval(() => {
+    if (idx >= sim.steps.length - 1) { stop(); return; }
+    idx++; render();
+  }, 1900);
+});
+
+// 05절 결과표: 모든 설정 × 두 클라이언트
+const tbody = document.querySelector('#matrix tbody');
+for (const key of Object.keys(SCENARIOS)) {
+  const tr = document.createElement('tr');
+  const th = document.createElement('td');
+  th.textContent = SCENARIOS[key].label;
+  tr.append(th);
+  for (const ck of ['app', 'ui']) {
+    const r = simulate(ck, key);
+    const td = document.createElement('td');
+    const span = document.createElement('span');
+    span.className = r.ok ? 'okc' : 'badc';
+    span.textContent = r.ok ? '성공' : '실패';
+    td.append(span);
+    if (!r.ok) td.append(' (' + r.reason + ')');
+    tr.append(td);
+  }
+  tbody.append(tr);
+}
+
+restart();
+})();
+</script>
+</body>
+</html>

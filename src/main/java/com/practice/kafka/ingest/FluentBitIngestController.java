@@ -46,16 +46,19 @@ public class FluentBitIngestController {
     public ResponseEntity<Void> ingest(@RequestBody List<FluentBitRecord> records) {
         Instant now = Instant.now();
         CompletableFuture<?>[] futures = new CompletableFuture<?>[records.size()];
-        for (int i = 0; i < records.size(); i++) {
-            FluentBitRecord r = records.get(i);
-            LogEvent event = normalizer.normalize(
-                    r.source(),
-                    r.offset() == null ? -1 : r.offset(),
-                    r.log(),
-                    r.collectedAt() == null ? now : r.collectedAt());
-            futures[i] = producer.send(event);
-        }
         try {
+            for (int i = 0; i < records.size(); i++) {
+                FluentBitRecord r = records.get(i);
+                LogEvent event = normalizer.normalize(
+                        r.source(),
+                        r.offset() == null ? -1 : r.offset(),
+                        r.log(),
+                        r.collectedAt() == null ? now : r.collectedAt());
+                // send() 자체가 예외를 던질 수도 있어 try 안에 둔다. 알던 브로커가 모두 끊기면 Kafka 4 클라이언트는
+                // 메타데이터를 버리고 bootstrap 부터 다시 시작한다(metadata.recovery.strategy=rebootstrap 기본값).
+                // 그러면 토픽 정보가 없어 send() 가 max.block.ms(기본 60초) 동안 막힌 뒤 Future 가 아니라 예외로 실패한다.
+                futures[i] = producer.send(event);
+            }
             // 묶음 전체가 브로커에 기록된 것을 확인한 뒤에야 성공을 알린다.
             CompletableFuture.allOf(futures).join();
         } catch (RuntimeException e) {

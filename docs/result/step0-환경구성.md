@@ -30,17 +30,20 @@ docker exec -it kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhos
 
 # 3. 터미널 A: 컨슈머 (처음부터 읽기)
 docker exec -it kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
-  --topic hello --from-beginning --property print.key=true --property print.partition=true
+  --topic hello --from-beginning --formatter-property print.key=true --formatter-property print.partition=true
 
 # 4. 터미널 B: 프로듀서 (key:value 형식으로 입력)
 docker exec -it kafka /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 \
-  --topic hello --property parse.key=true --property key.separator=:
+  --topic hello --reader-property parse.key=true --reader-property key.separator=:
 # > order:first
 # > order:second
-# > payment:third
+# > cart:third
+# > item:fourth
 ```
 
-터미널 A에서 `order` 키의 두 메시지가 같은 파티션 번호로 찍히고, `payment`는 다른(또는 우연히 같은) 파티션에 가는 것을 본다. 같은 키는 같은 파티션이라는 규칙을 눈으로 확인하는 것이 이 단계의 목적이다.
+터미널 A에서 `order` 키의 두 메시지가 같은 파티션 번호로 찍히고, `cart`와 `item`은 다른 파티션에 가는 것을 본다. 파티션이 3개일 때 `order`는 2, `cart`는 0, `item`은 1로 간다(2026-10-15 확인). 처음 쓴 예시의 `payment`는 해시 결과가 `order`와 같아 둘 다 파티션 2로 가서 차이가 안 보였다. 같은 키는 같은 파티션이라는 규칙을 눈으로 확인하는 것이 이 단계의 목적이다.
+
+Kafka 4.2의 콘솔 도구는 `--property`를 deprecated로 두고, 컨슈머는 `--formatter-property`, 프로듀서는 `--reader-property`를 쓴다. 위 명령은 bash용 줄바꿈(`\`)을 쓰므로, Windows PowerShell에서는 `../practice/01-인프라와-CLI.md` A3의 한 줄 명령을 쓴다.
 
 브라우저에서 http://localhost:8085 를 열면 Brokers 1개, Topics에 `hello`와 내부 토픽 `__consumer_offsets`가 보인다. Topics → hello → Messages 탭에서 방금 보낸 메시지와 파티션/오프셋을 확인한다.
 

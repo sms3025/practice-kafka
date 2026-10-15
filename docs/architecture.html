@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>practice-kafka 아키텍처와 데이터 흐름 (Step 2 기준)</title>
+<style>
+  :root {
+    --bg: #fafaf9; --fg: #1c1917; --muted: #57534e; --line: #d6d3d1;
+    --host: #dbeafe; --host-b: #2563eb;      /* 호스트에서 뜨는 것 */
+    --docker: #dcfce7; --docker-b: #16a34a;  /* docker 컨테이너 */
+    --code: #fef3c7; --code-b: #d97706;      /* 우리가 짠 코드 */
+    --future: #f5f5f4; --future-b: #a8a29e;  /* 아직 없는 것 */
+    --kafka: #ede9fe; --kafka-b: #7c3aed;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1917; --fg: #fafaf9; --muted: #a8a29e; --line: #44403c;
+      --host: #1e3a5f; --docker: #14532d; --code: #713f12; --future: #292524; --kafka: #3b0764;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif; line-height: 1.65; font-size: 15px; }
+  main { max-width: 1120px; margin: 0 auto; padding: 32px 24px 80px; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  h2 { font-size: 20px; margin: 48px 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--line); }
+  h3 { font-size: 16px; margin: 24px 0 8px; }
+  p { margin: 8px 0; }
+  .sub { color: var(--muted); margin-bottom: 20px; }
+  code { font-family: Consolas, "D2Coding", monospace; font-size: 13px; background: color-mix(in srgb, var(--fg) 7%, transparent); padding: 1px 5px; border-radius: 4px; }
+  pre { font-family: Consolas, "D2Coding", monospace; font-size: 12.5px; background: color-mix(in srgb, var(--fg) 6%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; overflow-x: auto; margin: 8px 0; line-height: 1.5; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: color-mix(in srgb, var(--fg) 5%, transparent); }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; margin: 10px 0 18px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 14px; height: 14px; border-radius: 3px; border: 2px solid; display: inline-block; }
+  .diagram { width: 100%; height: auto; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--fg) 2%, transparent); }
+  .diagram text { font-family: inherit; fill: var(--fg); }
+  .diagram .small { font-size: 11px; fill: var(--muted); }
+  .diagram .label { font-size: 13px; font-weight: 600; }
+  .diagram .port { font-size: 11px; font-weight: 600; }
+  .diagram .lane { font-size: 12px; font-weight: 700; fill: var(--muted); letter-spacing: .04em; }
+  .diagram .edge { stroke: var(--fg); stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+  .diagram .edge.dim { stroke: var(--future-b); stroke-dasharray: 5 4; }
+  .diagram .box-host { fill: var(--host); stroke: var(--host-b); stroke-width: 1.5; }
+  .diagram .box-docker { fill: var(--docker); stroke: var(--docker-b); stroke-width: 1.5; }
+  .diagram .box-code { fill: var(--code); stroke: var(--code-b); stroke-width: 1.5; }
+  .diagram .box-kafka { fill: var(--kafka); stroke: var(--kafka-b); stroke-width: 1.5; }
+  .diagram .box-future { fill: var(--future); stroke: var(--future-b); stroke-width: 1.5; stroke-dasharray: 5 4; }
+  .diagram .lane-bg { fill: none; stroke: var(--line); stroke-dasharray: 3 5; }
+
+  /* 데이터 흐름 단계 카드 */
+  .flow { display: grid; grid-template-columns: 1fr; gap: 0; counter-reset: step; }
+  .step { display: grid; grid-template-columns: 44px 1fr; gap: 14px; padding: 16px 0; border-bottom: 1px dashed var(--line); }
+  .step:last-child { border-bottom: none; }
+  .step .num { counter-increment: step; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #fff; background: var(--host-b); }
+  .step .num::before { content: counter(step); }
+  .step .who { font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
+  .step .who code { font-size: 12px; }
+  .step h3 { margin: 0 0 4px; }
+  .io { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+  .io > div { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .io .t { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
+  .io pre { margin: 0; border: none; background: transparent; padding: 0; }
+  @media (max-width: 720px) { .io { grid-template-columns: 1fr; } }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .card { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; background: color-mix(in srgb, var(--fg) 2%, transparent); }
+  .card h3 { margin: 0 0 6px; font-size: 15px; }
+  .card p { font-size: 14px; }
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; border: 1px solid; margin-left: 6px; vertical-align: middle; }
+  .tag.done { color: var(--docker-b); border-color: var(--docker-b); }
+  .tag.todo { color: var(--future-b); border-color: var(--future-b); }
+  .tag.impl { color: var(--code-b); border-color: var(--code-b); }
+  .note { border-left: 4px solid var(--code-b); background: color-mix(in srgb, var(--code) 50%, transparent); padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 12px 0; font-size: 14px; }
+  .toc { font-size: 14px; display: flex; gap: 6px 18px; flex-wrap: wrap; }
+  .toc a { color: var(--host-b); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  ul { padding-left: 20px; } li { margin: 3px 0; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>practice-kafka 아키텍처와 데이터 흐름</h1>
+<p class="sub">Step 2까지 구현된 상태 기준 (2026-10-12). 자세한 설명은 <code>docs/README.md</code>, 코드 한 줄씩 따라가는 교재는 <code>docs/study/02-메시지의-여행.md</code>에 있다.</p>
+
+<nav class="toc">
+  <a href="#big">1. 큰 그림</a>
+  <a href="#runtime">2. 실행 구성도</a>
+  <a href="#flow">3. 데이터 흐름 여섯 구간</a>
+  <a href="#schema">4. 메시지 스키마</a>
+  <a href="#why">5. 핵심 설계 결정</a>
+  <a href="#code">6. 코드 구조</a>
+  <a href="#status">7. 지금 어디까지, 다음은 무엇</a>
+  <a href="#check">8. 어디를 보면 확인되는가</a>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="big">1. 큰 그림: 무엇을 축소해서 만들고 있는가</h2>
+
+<p>기업 연계 프로젝트 <strong>Log Collector</strong>는 반도체 공장의 OHT 차량 1,000대 이상이 각자 로컬 디스크에 쌓는 로그를 중앙에 모아 저장하고 검색·시각화하는 시스템이다. 이 저장소는 그 구조를 축소판으로 만들면서 Kafka를 배운다. 차량 대신 로그 생성기, 1,000대 대신 몇 대, 운영 서버 대신 docker 컨테이너를 쓰지만 <strong>구성요소와 데이터 흐름은 같다.</strong></p>
+
+<table>
+  <tr><th style="width:22%">구성요소</th><th>실제 프로젝트</th><th>이 저장소 (연습)</th><th style="width:12%">상태</th></tr>
+  <tr><td>로그를 만드는 것</td><td>OHT 차량 1,000대의 로컬 디스크</td><td>호스트 폴더 <code>docker/devices/</code>. 대외비 생성기(<code>ohtsim</code>) 또는 앱 내장 시뮬레이터가 여기에 파일을 쓴다</td><td><span class="tag impl">구현</span></td></tr>
+  <tr><td>수집 에이전트</td><td>차량마다 설치된 Fluent Bit</td><td>Fluent Bit 컨테이너 하나가 폴더 전체를 tail 해서 1,000대 몫을 대신한다</td><td><span class="tag impl">구현</span></td></tr>
+  <tr><td>수집 서버</td><td>Spring 서버 (HTTP 수신, 정규화, Kafka 발행)</td><td>같은 역할의 Spring Boot 앱. IntelliJ나 Gradle로 호스트에서 띄운다</td><td><span class="tag impl">구현</span></td></tr>
+  <tr><td>완충 계층</td><td>Kafka 클러스터 (3브로커)</td><td>KRaft 단일 브로커 컨테이너. 토픽 <code>app-logs</code> 파티션 3개</td><td><span class="tag done">완료</span></td></tr>
+  <tr><td>적재 컨슈머</td><td>Kafka에서 읽어 ClickHouse에 배치 적재</td><td>지금은 콘솔에 찍기만 한다. 수집 서버와 같은 프로세스 안에 있다</td><td><span class="tag todo">Step 4</span></td></tr>
+  <tr><td>저장소 · 대시보드</td><td>ClickHouse + Grafana</td><td>아직 없다</td><td><span class="tag todo">Step 4</span></td></tr>
+</table>
+
+<div class="note"><strong>Kafka가 가운데 들어가는 이유 한 문단.</strong> 수집 서버가 받은 로그를 바로 DB에 쓰면, DB가 잠깐만 느려져도 수집 서버가 밀리고, 수집 서버가 밀리면 에이전트 1,000대가 동시에 재시도하며 상황이 악화된다. Kafka는 "일단 디스크에 순서대로 적어두는" 완충 계층이다. 수집 서버는 Kafka에 쓰고 즉시 응답하고, DB 적재는 뒤에서 컨슈머가 자기 속도로 따라간다. 생산자와 소비자의 속도를 분리하는 것이 첫째 이유, 같은 로그를 여러 소비자가 독립적으로 읽을 수 있는 것이 둘째, 어느 구성요소가 죽어도 로그가 Kafka에 남아 복구 후 이어서 처리할 수 있는 것이 셋째 이유다.</div>
+
+<!-- ============================================================ -->
+<h2 id="runtime">2. 실행 구성도: 프로세스 넷과 포트</h2>
+
+<p>프로세스는 넷이다. 셋은 docker compose(<code>docker/docker-compose.yml</code>)가 띄우는 컨테이너이고, 하나는 호스트에서 띄우는 Spring Boot 앱이다. 호스트 폴더 <code>docker/devices</code>가 "차량의 로컬 디스크" 역할을 하며, 생성기가 여기에 쓰고 Fluent Bit 컨테이너가 읽기 전용으로 마운트해서 읽는다.</p>
+
+<div class="legend">
+  <span><i style="background:var(--host);border-color:var(--host-b)"></i> 호스트 PC에서 실행</span>
+  <span><i style="background:var(--code);border-color:var(--code-b)"></i> 우리가 짠 코드 (Spring 앱 내부)</span>
+  <span><i style="background:var(--docker);border-color:var(--docker-b)"></i> docker 컨테이너</span>
+  <span><i style="background:var(--kafka);border-color:var(--kafka-b)"></i> Kafka 브로커</span>
+  <span><i style="background:var(--future);border-color:var(--future-b);border-style:dashed"></i> 아직 없음 (Step 4)</span>
+</div>
+
+<svg class="diagram" viewBox="0 0 1100 520" role="img" aria-label="실행 구성도">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" style="fill: var(--fg)"/>
+    </marker>
+  </defs>
+
+  <!-- 레인 -->
+  <rect x="16" y="16" width="420" height="488" rx="10" class="lane-bg"/>
+  <text x="30" y="40" class="lane">호스트 PC (Windows)</text>
+  <rect x="456" y="16" width="628" height="488" rx="10" class="lane-bg"/>
+  <text x="470" y="40" class="lane">docker compose (practice-kafka)</text>
+
+  <!-- 로그 생성기 -->
+  <rect x="36" y="62" width="180" height="92" rx="8" class="box-host"/>
+  <text x="48" y="84" class="label">로그 생성기</text>
+  <text x="48" y="104" class="small">scripts/ohtsim.cmd (대외비, 실제 형식)</text>
+  <text x="48" y="120" class="small">POST /api/logs/simulate (연습용 형식)</text>
+  <text x="48" y="140" class="small">둘 다 파일을 쓴다</text>
+
+  <!-- devices 폴더 -->
+  <rect x="36" y="190" width="180" height="70" rx="8" class="box-host"/>
+  <text x="48" y="212" class="label">docker/devices/</text>
+  <text x="48" y="230" class="small">OHT-0001/UILogger/*.log</text>
+  <text x="48" y="246" class="small">OHT-0001/OHTHandlerLogger/*/*.txt</text>
+  <path d="M126 154 L126 188" class="edge"/>
+  <text x="134" y="176" class="small">파일 쓰기</text>
+
+  <!-- 바인드 마운트 -->
+  <path d="M216 225 L492 225" class="edge"/>
+  <text x="250" y="216" class="small">바인드 마운트 (읽기 전용) → /var/log/devices</text>
+
+  <!-- Fluent Bit -->
+  <rect x="494" y="176" width="220" height="98" rx="8" class="box-docker"/>
+  <text x="506" y="198" class="label">fluent-bit <tspan class="port">:2020</tspan></text>
+  <text x="506" y="216" class="small">[INPUT] tail  파일을 폴링으로 읽음</text>
+  <text x="506" y="232" class="small">[OUTPUT] http  JSON 배열로 POST</text>
+  <text x="506" y="248" class="small">디스크 버퍼 + 2xx 아니면 무한 재시도</text>
+  <text x="506" y="264" class="small">/api/v1/metrics 로 입출력 건수 확인</text>
+
+  <!-- HTTP 화살표: Fluent Bit → Spring 앱 (컨테이너에서 호스트로 되돌아옴) -->
+  <path d="M604 274 L604 300 L250 300 L250 330" class="edge"/>
+  <text x="262" y="318" class="small">HTTP POST host.docker.internal:8080/ingest/fluentbit</text>
+
+  <!-- Spring 앱 -->
+  <rect x="36" y="332" width="400" height="156" rx="8" class="box-host"/>
+  <text x="48" y="354" class="label">Spring Boot 앱 <tspan class="port">:8080</tspan></text>
+  <rect x="48" y="366" width="180" height="48" rx="6" class="box-code"/>
+  <text x="56" y="384" class="label" style="font-size:12px">ingest + log</text>
+  <text x="56" y="400" class="small">POST 수신 → LogNormalizer 정규화</text>
+  <rect x="244" y="366" width="180" height="48" rx="6" class="box-code"/>
+  <text x="252" y="384" class="label" style="font-size:12px">producer</text>
+  <text x="252" y="400" class="small">KafkaTemplate.send(key=device_id)</text>
+  <path d="M228 390 L242 390" class="edge"/>
+  <rect x="48" y="426" width="180" height="48" rx="6" class="box-code"/>
+  <text x="56" y="444" class="label" style="font-size:12px">consumer</text>
+  <text x="56" y="460" class="small">@KafkaListener(log-printer) → 콘솔</text>
+  <rect x="244" y="426" width="180" height="48" rx="6" class="box-code"/>
+  <text x="252" y="444" class="label" style="font-size:12px">api (실험용)</text>
+  <text x="252" y="460" class="small">/api/logs/{generate,simulate,stats}</text>
+
+  <!-- Kafka -->
+  <rect x="760" y="332" width="300" height="156" rx="8" class="box-kafka"/>
+  <text x="772" y="354" class="label">kafka (KRaft 단일 브로커)</text>
+  <text x="772" y="372" class="small">PLAINTEXT_HOST  localhost:9092  ← 호스트의 앱</text>
+  <text x="772" y="388" class="small">PLAINTEXT  kafka:19092  ← 컨테이너 내부(Kafka UI)</text>
+  <rect x="772" y="402" width="276" height="74" rx="6" fill="color-mix(in srgb, var(--fg) 6%, transparent)" stroke="var(--kafka-b)" stroke-width="1"/>
+  <text x="782" y="420" class="label" style="font-size:12px">토픽 app-logs (파티션 3, 복제 1)</text>
+  <text x="782" y="438" class="small">P0  ▮▮▮▮▮▮▮▮▮▮▮▮</text>
+  <text x="782" y="452" class="small">P1  ▮▮▮▮▮▮▮▮▮</text>
+  <text x="782" y="466" class="small">P2  ▮▮▮▮▮▮▮▮▮▮▮▮▮▮</text>
+
+  <!-- producer → kafka, kafka → consumer -->
+  <path d="M424 390 L758 390" class="edge"/>
+  <text x="520" y="382" class="small">발행 (acks=all, 브로커 ack 후 200 응답)</text>
+  <path d="M758 450 L436 450" class="edge"/>
+  <text x="520" y="468" class="small">소비 (그룹 log-printer가 P0,P1,P2 전부 담당)</text>
+
+  <!-- Kafka UI -->
+  <rect x="760" y="62" width="300" height="70" rx="8" class="box-docker"/>
+  <text x="772" y="84" class="label">kafka-ui <tspan class="port">:8085</tspan></text>
+  <text x="772" y="102" class="small">브라우저에서 토픽·파티션·메시지·컨슈머 그룹·lag 확인</text>
+  <text x="772" y="118" class="small">kafka:19092 로 붙는다</text>
+  <path d="M910 132 L910 330" class="edge dim"/>
+
+  <!-- ClickHouse / Grafana (future) -->
+  <rect x="760" y="176" width="140" height="98" rx="8" class="box-future"/>
+  <text x="772" y="198" class="label">ClickHouse</text>
+  <text x="772" y="216" class="small">Step 4 예정</text>
+  <text x="772" y="232" class="small">배치 적재, 멱등키로</text>
+  <text x="772" y="248" class="small">중복 제거, TTL</text>
+  <rect x="920" y="176" width="140" height="98" rx="8" class="box-future"/>
+  <text x="932" y="198" class="label">Grafana</text>
+  <text x="932" y="216" class="small">Step 4 예정</text>
+  <text x="932" y="232" class="small">대시보드</text>
+  <path d="M900 225 L918 225" class="edge dim"/>
+</svg>
+
+<table>
+  <tr><th style="width:16%">구성요소</th><th style="width:16%">어디서 뜨는가</th><th>역할</th><th style="width:26%">설정 파일</th></tr>
+  <tr><td>로그 생성기</td><td>호스트 (Python) 또는 앱 내부</td><td>장비 로그 파일을 만든다. 실제 형식은 대외비 생성기, 연습용은 <code>DeviceLogSimulator</code></td><td><code>scripts/ohtsim.*</code>, <code>app.simulator.*</code></td></tr>
+  <tr><td>Fluent Bit</td><td>docker</td><td>파일을 tail 해서 HTTP로 수집 서버에 보낸다. 디스크 버퍼와 무한 재시도로 at-least-once</td><td><code>docker/fluent-bit/fluent-bit.conf</code></td></tr>
+  <tr><td>Spring 수집 서버 + 컨슈머</td><td>호스트 (JDK 25, Gradle이 자동 설치)</td><td>받은 묶음을 정규화해 Kafka에 발행하고, 같은 프로세스의 리스너가 소비해 콘솔에 찍는다</td><td><code>src/main/resources/application.properties</code></td></tr>
+  <tr><td>Kafka</td><td>docker (KRaft 단일 브로커)</td><td><code>app-logs</code> 토픽에 메시지를 순서대로 쌓는다. 토픽 자동 생성은 꺼져 있고 앱 기동 시 <code>KafkaTopicConfig</code>가 만든다</td><td><code>docker/docker-compose.yml</code></td></tr>
+  <tr><td>Kafka UI</td><td>docker</td><td>브라우저에서 토픽, 메시지, 컨슈머 그룹, lag을 본다</td><td><code>docker/docker-compose.yml</code></td></tr>
+</table>
+
+<p>리스너가 둘인 이유. 브로커는 "나에게 이 주소로 접속하라"는 광고 주소(advertised listener)를 클라이언트에 알려준다. 호스트의 앱에게는 <code>localhost:9092</code>, 컨테이너 안의 Kafka UI에게는 <code>kafka:19092</code>가 맞는 주소이므로 둘을 따로 둔다. 하나만 두면 둘 중 한쪽이 붙지 못한다. 이것이 Kafka 입문자가 가장 자주 겪는 오류다.</p>
+
+<!-- ============================================================ -->
+<h2 id="flow">3. 데이터 흐름: 로그 한 줄이 지나는 여섯 구간</h2>
+
+<p>아래는 연습용 단순 형식 한 줄이 파일에서 컨슈머까지 가는 동안 각 구간에서 무엇이 바뀌는지다. 예시는 저장소 주석에 있는 가짜 문장이며, 실제 OHT 로그 형식 두 가지(UILogger, OHTHandlerLogger)도 4번 구간에서 같은 방식으로 파싱된다.</p>
+
+<div class="flow">
+
+  <div class="step">
+    <div class="num"></div>
+    <div>
+      <div class="who">담당: Fluent Bit <code>[INPUT] tail</code> · <code>docker/fluent-bit/fluent-bit.conf</code></div>
+      <h3>파일 → Fluent Bit 레코드</h3>
+      <p>Fluent Bit이 <code>/var/log/devices/</code> 아래 파일을 5초마다 폴링해 새 줄을 읽는다. 설정의 <code>Path_Key source</code>, <code>Offset_Key offset</code> 때문에 원문 외에 파일 경로와 파일 내 바이트 위치가 레코드에 붙는다. 어디까지 읽었는지는 SQLite(<code>tail.db</code>)에 기록되어 재시작해도 이어서 읽는다.</p>
+      <div class="io">
+        <div><div class="t">들어오는 것 (파일의 새 줄)</div><pre>2026-10-12 14:03:21.123 [WARN] ECU temperature high: 97C</pre></div>
+        <div><div class="t">나가는 것 (레코드)</div><pre>log    = "2026-10-12 14:03:21.123 [WARN] ECU ..."
+source = "/var/log/devices/sim/dev-0007.log"
+offset = 1842</pre></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="num"></div>
+    <div>
+      <div class="who">담당: Fluent Bit <code>[OUTPUT] http</code></div>
+      <h3>Fluent Bit → HTTP POST</h3>
+      <p>1초(<code>Flush 1</code>)마다 모인 레코드를 JSON 배열로 묶어 <code>host.docker.internal:8080/ingest/fluentbit</code>에 POST 한다. <code>Json_date_key collected_at</code>으로 수집 시각이 추가된다. 응답이 2xx가 아니면 <code>Retry_Limit False</code>에 따라 무한 재시도하며, 그동안 레코드는 디스크 버퍼(<code>storage.type filesystem</code>)에 남는다. <strong>수집 서버나 Kafka가 죽어 있어도 로그가 유실되지 않는 이유가 이것이다.</strong></p>
+      <div class="io">
+        <div><div class="t">나가는 것 (HTTP 본문)</div><pre>POST /ingest/fluentbit
+Content-Type: application/json
+
+[
+  {"collected_at":"2026-10-12T05:03:21.123456Z",
+   "log":"2026-10-12 14:03:21.123 [WARN] ECU temperature high: 97C",
+   "source":"/var/log/devices/sim/dev-0007.log",
+   "offset":1842},
+  ...
+]</pre></div>
+        <div><div class="t">실패 시</div><pre>2xx 아님 → 같은 묶음 재전송 (중복 가능)
+연결 거부 → 디스크 버퍼에 보관 후 재시도
+→ /api/v1/metrics 의 retries 가 늘어난다</pre></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="num"></div>
+    <div>
+      <div class="who">담당: <code>ingest/FluentBitIngestController</code>, <code>ingest/FluentBitRecord</code></div>
+      <h3>HTTP → 수집 서버</h3>
+      <p>Spring MVC가 JSON 배열을 <code>List&lt;FluentBitRecord&gt;</code>로 역직렬화한다. 컨트롤러가 하는 일은 셋뿐이다. 받는다, 정규화한다, Kafka에 넣는다. 저장소 적재는 여기서 하지 않는다. <strong>응답 코드가 곧 전송 보장이다.</strong> 묶음 안의 모든 메시지가 브로커 ack를 받은 뒤에야 200을 돌려주고, 하나라도 실패하면 500을 돌려 Fluent Bit이 재전송하게 한다.</p>
+      <div class="io">
+        <div><div class="t">핵심 코드 (요약)</div><pre>for (record : records)
+    futures[i] = producer.send(normalizer.normalize(...));
+CompletableFuture.allOf(futures).join();   // 전부 ack 대기
+return 200;                                 // 실패 시 500</pre></div>
+        <div><div class="t">왜 이렇게</div><pre>Kafka 에 넣기 전에 200 을 주면
+→ 그 사이 앱이 죽을 때 유실
+ack 를 기다린 뒤 200 을 주면
+→ 유실 없음, 대신 중복 가능 (at-least-once)</pre></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="num"></div>
+    <div>
+      <div class="who">담당: <code>log/LogNormalizer</code> → <code>log/LogEvent</code></div>
+      <h3>정규화: 원문 한 줄을 명세서 스키마로</h3>
+      <p>명세서가 요구하는 정규화는 둘이다. 첫째, 에이전트는 파일 경로만 알므로 경로에서 정규식(<code>app.ingest.device-id-pattern</code>)으로 <strong>device_id</strong>를 뽑는다. OHT 로그는 장비 ID가 파일명이 아니라 폴더 이름에 있다. 둘째, 장비가 찍은 로컬 시각(<code>app.ingest.device-zone</code>=Asia/Seoul)을 UTC <strong>event_time</strong>으로 바꾼다. 세 가지 형식을 위에서부터 차례로 시도하고, 어느 것도 맞지 않으면 시각을 <code>collected_at</code>으로 대체하고 본문은 raw 전체로 둔다. 버리지 않고 어떻게든 저장하는 것이 로그 파이프라인의 원칙이다.</p>
+      <div class="io">
+        <div><div class="t">지원 형식 세 가지 (형식만 같은 가짜 예)</div><pre>(A) OHTHandlerLogger
+    [2026-01-05 09:12:30.1234],[SEQ_INFO],[INFORMATION],[316710],[msg => 본문]
+(B) UILogger
+    2026-01-05 09:12:30,123 [1] INFO APP - 본문
+(C) 단순 (연습용 시뮬레이터)
+    2026-01-05 09:12:30.123 [WARN] 본문</pre></div>
+        <div><div class="t">나가는 것 (LogEvent)</div><pre>device_id    = "dev-0007"      ← 경로에서 추출
+source       = "/var/log/devices/sim/dev-0007.log"
+event_time   = 2026-10-12T05:03:21.123Z  ← KST→UTC
+collected_at = 2026-10-12T05:03:21.123456Z
+offset       = 1842
+raw          = "2026-10-12 14:03:21.123 [WARN] ECU ..."
+category     = null            ← 단순 형식엔 없음
+level        = "WARN"          ← WARNING/INFORMATION 도 통일
+message      = "ECU temperature high: 97C"</pre></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="num"></div>
+    <div>
+      <div class="who">담당: <code>producer/LogEventProducer</code> · <code>spring.kafka.producer.*</code></div>
+      <h3>발행: Kafka 토픽 app-logs로</h3>
+      <p><code>KafkaTemplate.send(topic, key=device_id, value=LogEvent)</code>. 값은 <code>JacksonJsonSerializer</code>가 snake_case JSON으로 바꾼다. <code>send()</code>는 비동기다. 메시지는 내부 버퍼에 쌓였다가 I/O 스레드가 <code>linger.ms=5</code>, <code>batch-size=16384</code> 기준으로 배치 전송하고, 결과는 Future로 온다. <code>acks=all</code>이므로 브로커가 기록을 마쳐야 ack가 온다. <strong>키가 device_id라서 같은 장비의 로그는 항상 같은 파티션에 발생 순서대로 쌓인다.</strong> 1,000대가 3개 파티션에 해시로 분산되므로 특정 파티션으로 쏠리지 않는다.</p>
+      <div class="io">
+        <div><div class="t">파티션 결정</div><pre>partition = murmur2("dev-0007") % 3
+→ dev-0007 의 모든 로그는 같은 파티션
+→ 키가 null 이면 sticky 로 흩어진다 (순서 보장 없음)</pre></div>
+        <div><div class="t">토픽에 쌓이는 것</div><pre>app-logs / partition 1 / offset 4521
+key   : "dev-0007"
+value : {"device_id":"dev-0007","source":"...",
+         "event_time":"2026-10-12T05:03:21.123Z",
+         "collected_at":"...","offset":1842,
+         "raw":"...","category":null,
+         "level":"WARN","message":"ECU ..."}</pre></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="num"></div>
+    <div>
+      <div class="who">담당: <code>consumer/LogEventConsumer</code> · <code>spring.kafka.consumer.*</code></div>
+      <h3>소비: 컨슈머 그룹 log-printer</h3>
+      <p><code>@KafkaListener(topics="app-logs", groupId="log-printer")</code>가 붙은 메서드를 Spring의 리스너 컨테이너가 백그라운드 스레드에서 호출한다. 지금은 컨슈머가 하나뿐이라 파티션 셋을 혼자 다 맡는다(기동 로그의 <code>partitions assigned: [app-logs-0, app-logs-1, app-logs-2]</code>). 역직렬화는 타입 헤더 없이 <code>spring.json.value.default.type=LogEvent</code>로 지정한다. 읽은 위치(오프셋)는 그룹 단위로 브로커에 커밋되므로 앱을 껐다 켜도 이어서 읽는다. 지금은 콘솔에 찍기만 하며, Step 4에서 ClickHouse 적재로 바뀐다.</p>
+      <div class="io">
+        <div><div class="t">콘솔 출력 (지금)</div><pre>[consume #1] partition=1 offset=4521 key=dev-0007
+  level=WARN message=ECU temperature high: 97C</pre></div>
+        <div><div class="t">Step 4 이후</div><pre>배치 리스너로 N건씩 모아 ClickHouse INSERT
+ReplacingMergeTree + 멱등키(device_id, source, offset)
+→ 재전송으로 들어온 중복은 저장소에서 사라진다</pre></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ============================================================ -->
+<h2 id="schema">4. 메시지 스키마: Kafka를 오가는 JSON</h2>
+
+<p>정의는 <code>src/main/java/com/practice/kafka/log/LogEvent.java</code> 하나에 있다. 명세서의 공통 스키마 여섯 필드에 파싱 결과 셋을 더했다. 이 구조를 바꾸면 <code>LogNormalizerTest</code>와 <code>docs/study/02</code>를 함께 고친다.</p>
+
+<table>
+  <tr><th style="width:18%">필드</th><th>뜻</th><th style="width:30%">누가 채우는가</th></tr>
+  <tr><td><code>device_id</code></td><td>장비 식별자. <strong>Kafka 메시지 키</strong></td><td>수집 서버가 파일 경로에서 추출</td></tr>
+  <tr><td><code>source</code></td><td>원본 파일 경로</td><td>Fluent Bit (<code>Path_Key</code>)</td></tr>
+  <tr><td><code>event_time</code></td><td>원문의 이벤트 시각을 UTC로 정규화</td><td>수집 서버. 못 찾으면 <code>collected_at</code>으로 대체</td></tr>
+  <tr><td><code>collected_at</code></td><td>에이전트 수집 시각</td><td>Fluent Bit (<code>Json_date_key</code>)</td></tr>
+  <tr><td><code>offset</code></td><td>파일 내 바이트 위치</td><td>Fluent Bit (<code>Offset_Key</code>)</td></tr>
+  <tr><td><code>raw</code></td><td>원문 원형 (줄 끝 CR/LF만 제거). 전문 검색 대상</td><td>Fluent Bit이 읽은 그대로</td></tr>
+  <tr><td><code>category</code>, <code>level</code>, <code>message</code></td><td>본문 파싱 결과. 레벨은 INFORMATION→INFO 식으로 통일</td><td>수집 서버. 실패하면 null</td></tr>
+</table>
+
+<div class="note"><strong>멱등키는 <code>(device_id, source, offset)</code>이다.</strong> 에이전트가 같은 묶음을 다시 보내도 같은 줄은 같은 파일의 같은 바이트 위치에서 읽혔으므로 같은 키를 가진다. 저장소에서 이 키로 중복을 걸러낸다. 여기서 <code>offset</code>은 파일 내 위치이고, Kafka의 파티션 오프셋과는 이름만 같고 전혀 다른 것이다.</div>
+
+<!-- ============================================================ -->
+<h2 id="why">5. 핵심 설계 결정 네 가지</h2>
+
+<div class="cards">
+  <div class="card">
+    <h3>왜 Fluent Bit이 Kafka에 직접 쓰지 않고 HTTP로 수집 서버를 거치는가</h3>
+    <p>Fluent Bit에는 kafka 출력 플러그인이 있어 직접 쓸 수도 있다. 그러나 1,000대 장비가 각자 Kafka 클라이언트가 되면 브로커 주소, 인증, 토픽 구조가 장비마다 배포되어야 하고, 형식 정규화와 device_id 추출을 할 곳이 없다. 수집 서버를 두면 장비 쪽 설정은 "HTTP 주소 하나"로 끝나고 Kafka 관련 변경은 서버 한 곳에서 처리한다. 명세서의 아키텍처도 이 구조다.</p>
+  </div>
+  <div class="card">
+    <h3>왜 브로커 ack를 기다린 뒤에 200을 주는가 (at-least-once)</h3>
+    <p>Fluent Bit은 2xx가 아니면 재전송한다. 수집 서버가 Kafka에 쓰기 전에 200을 주면 그 사이 서버가 죽을 때 로그가 사라진다. ack를 기다리면 유실은 없지만, ack 직후 응답 전에 죽으면 같은 묶음이 두 번 온다. 그래서 "유실 0, 중복 허용"을 택하고 중복은 멱등키로 저장소에서 걸러낸다. 로그 파이프라인에서는 중복이 유실보다 훨씬 싸다.</p>
+  </div>
+  <div class="card">
+    <h3>왜 메시지 키가 device_id인가</h3>
+    <p>같은 키는 항상 같은 파티션으로 간다. 그래서 한 장비의 로그는 발생 순서대로 한 파티션에 쌓이고, 컨슈머도 그 순서대로 읽는다. 장애 분석에서 "이 차량에서 무슨 일이 순서대로 일어났나"가 핵심 질문이므로 장비 단위 순서가 중요하다. 키를 없애면 처리량은 비슷하지만 순서가 깨진다(워크북 C7 실험).</p>
+  </div>
+  <div class="card">
+    <h3>왜 수집 서버와 컨슈머가 한 프로세스에 있는가</h3>
+    <p>학습 편의다. 실제 프로젝트에서는 수집 서버(쓰기)와 적재 컨슈머(읽기)를 별도 서비스로 나눠 각각 독립적으로 늘리고 재배포한다. Step 3에서 앱을 두 개 띄워 파티션이 나뉘는 것을 보고, Step 4에서 컨슈머가 ClickHouse 적재를 맡으면서 자연스럽게 역할이 분리된다.</p>
+  </div>
+  <div class="card">
+    <h3>수집 서버가 1대여도 Kafka가 필요한가 (Step 4+에서 측정)</h3>
+    <p>Kafka는 서버를 늘리려고 쓰는 것이 아니라 서버와 DB 사이를 떼어 놓으려고 쓰므로 서버 대수와는 상관이 없다. 차이는 세 군데서 난다. ClickHouse는 INSERT마다 part를 만들어 작은 INSERT가 많으면 병합이 못 따라가는데, Kafka가 있으면 컨슈머가 큰 배치로 모아 넣을 수 있다. DB 장애 때 직접 적재는 로그가 장비 디스크에 흩어져 기다리고, Kafka 경유는 중앙에 쌓여 lag으로 보인다. Kafka에 원문이 남으므로 파서를 고친 뒤 다시 적재할 수 있다. 반대로 운영 요소와 지연이 늘어나는 비용이 있다. 명세서가 Kafka를 "대규모 대비" 추가 기능으로 둔 이유이며, Step 4+에서 같은 입력으로 두 경로를 재서 확인한다.</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="code">6. 코드 구조: 패키지는 "바뀌는 이유" 단위</h2>
+
+<p>어떤 변경이 들어오면 어느 패키지를 열어야 하는지가 바로 보이도록 묶었다. 3절의 구간 번호와 대응시켜 두었다.</p>
+
+<table>
+  <tr><th style="width:14%">패키지</th><th style="width:10%">구간</th><th>책임</th><th style="width:22%">바뀌는 때</th></tr>
+  <tr><td><code>ingest/</code></td><td>3</td><td><code>POST /ingest/fluentbit</code> 수신. 브로커 ack 후 2xx (at-least-once 계약)</td><td>수집 에이전트가 바뀔 때</td></tr>
+  <tr><td><code>log/</code></td><td>4</td><td><code>LogEvent</code> 스키마, <code>LogNormalizer</code> 파서 (형식 3종, device_id 추출, 시각 UTC 정규화)</td><td>로그 형식이나 스키마가 바뀔 때</td></tr>
+  <tr><td><code>producer/</code></td><td>5</td><td><code>KafkaTemplate</code> 발행(키=device_id), 부하 생성기 <code>LogGenerator</code></td><td>Kafka 발행 정책이 바뀔 때</td></tr>
+  <tr><td><code>consumer/</code></td><td>6</td><td><code>@KafkaListener</code></td><td>적재 대상이 바뀔 때</td></tr>
+  <tr><td><code>config/</code></td><td>-</td><td>토픽 선언 (<code>NewTopic</code>). 브로커의 자동 생성이 꺼져 있어 앱이 만든다</td><td>토픽 구성이 바뀔 때</td></tr>
+  <tr><td><code>simulator/</code>, <code>api/</code></td><td>-</td><td>연습·실험용. 단순 로그 파일 생성, Kafka 직접 발행, 통계</td><td>실험 항목이 늘 때</td></tr>
+</table>
+
+<h3>설정은 application.properties 한 파일에 세 묶음</h3>
+<table>
+  <tr><th style="width:24%">접두사</th><th>누가 읽는가</th><th>주요 항목</th></tr>
+  <tr><td><code>spring.kafka.*</code></td><td>Spring Boot 자동 구성이 읽어 Kafka 클라이언트를 만든다</td><td><code>bootstrap-servers</code>, 직렬화기, <code>acks=all</code>, <code>linger.ms=5</code>, <code>batch-size</code>, <code>auto-offset-reset=earliest</code>, <code>spring.json.value.default.type</code></td></tr>
+  <tr><td><code>app.*</code></td><td>이 프로젝트가 정의한 키. <code>@Value</code>로 주입</td><td>토픽 이름·파티션·복제, 컨슈머 그룹 이름, 장비 타임존, device_id 정규식, 시뮬레이터</td></tr>
+  <tr><td><code>logging.*</code></td><td>로그 레벨</td><td><code>producer</code>와 <code>ingest</code>는 DEBUG로 두어 파티션/오프셋과 묶음 건수가 보인다</td></tr>
+</table>
+
+<h3>실험용 HTTP 엔드포인트 (<code>api/LogController</code>)</h3>
+<table>
+  <tr><th style="width:36%">요청</th><th>하는 일</th></tr>
+  <tr><td><code>POST /api/logs</code></td><td>로그 한 줄을 직접 받아 정규화 후 발행. 202 응답 (비동기 발행이라 ack를 기다리지 않음)</td></tr>
+  <tr><td><code>POST /api/logs/generate?count=N&amp;devices=M</code></td><td>Fluent Bit을 거치지 않고 Kafka에 N건 직접 발행. 전부 ack 받기까지 걸린 <code>elapsedMs</code>를 돌려준다. 프로듀서 설정 실험용</td></tr>
+  <tr><td><code>POST /api/logs/simulate?lines=N</code></td><td>연습용 단순 로그 N줄을 <code>docker/devices/sim/</code>에 파일로 쓴다. 이후는 Fluent Bit이 알아서 가져간다</td></tr>
+  <tr><td><code>GET /api/logs/stats</code></td><td><code>receivedFromFluentBit</code>, <code>consumed</code> 등 누적 건수</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="status">7. 지금 어디까지, 다음은 무엇</h2>
+
+<p>Step 2까지 구현됐다. 파일에서 Kafka까지의 수집 경로와 실제 OHT 로그 형식 파서가 코드와 문서로 있다. Step 1·2의 Spring 코드는 컴파일 검증 없이 작성됐다가 2026-10-13에 <code>./gradlew clean test</code>로 컴파일과 테스트 통과를 확인했다. 아직 docker로 실행 절차를 재현하지 않았으므로 상태는 "구현 완료, 실행 검증 전"이다. <code>result/step2</code>의 실행 절차를 깨끗한 환경에서 재현하면 "완료"가 된다. 그 뒤에도 없는 것은 셋이다.</p>
+<ul>
+  <li>컨슈머는 콘솔에 찍기만 하고 저장소가 없다 (Step 4).</li>
+  <li>컨슈머가 하나뿐이라 파티션을 나눠 읽는 효과를 못 본다 (Step 3).</li>
+  <li>브로커가 하나라 복제와 장애 복구를 못 본다 (Step 6).</li>
+</ul>
+
+<table>
+  <tr><th style="width:10%">단계</th><th style="width:30%">덧붙는 것</th><th>배우는 것</th><th style="width:8%">워크북</th><th style="width:14%">상태</th></tr>
+  <tr><td>Step 0</td><td>단일 브로커 compose, Kafka UI</td><td>CLI로 토픽 만들고 주고받기</td><td>A</td><td><span class="tag done">완료</span></td></tr>
+  <tr><td>Step 1</td><td><code>KafkaTemplate</code>, <code>@KafkaListener</code>, JSON 직렬화</td><td>Producer/Consumer 기본, 키와 파티션</td><td>B, C</td><td><span class="tag impl">구현, 검증 전</span></td></tr>
+  <tr><td>Step 2</td><td>Fluent Bit, <code>/ingest/fluentbit</code>, 명세서 스키마</td><td>수집 경로, at-least-once, 정규화</td><td>D</td><td><span class="tag impl">구현, 검증 전</span></td></tr>
+  <tr><td>Step 2+</td><td>OHT 생성기(대외비) 연동, 형식 3종 파서, <code>docs/study</code> 교재</td><td>실제 로그 형식, 경로에서 device_id 추출</td><td>E, F</td><td><span class="tag impl">구현, 검증 전</span></td></tr>
+  <tr><td>Step 3</td><td><code>concurrency</code> 증가, 앱 2개 기동, 두 번째 컨슈머 그룹</td><td>파티션과 컨슈머의 관계, 리밸런스, 그룹 간 브로드캐스트, 파티션 수 산정</td><td>G</td><td><span class="tag todo">예정</span></td></tr>
+  <tr><td>Step 4</td><td>ClickHouse, Grafana, 배치 리스너, <code>clickhouse-sink</code> 그룹. 단독 체험, 테이블 설계, 배치 적재, Grafana 네 묶음</td><td>part와 병합, 정렬 키, ReplacingMergeTree로 중복 제거, TTL, 저장소 실패 시 커밋 전략, 저장 벤치마크</td><td>H</td><td><span class="tag todo">예정</span></td></tr>
+  <tr><td>Step 4+</td><td><code>compare</code> 프로파일, <code>/ingest/direct</code>, 경로별 Fluent Bit과 테이블, Kafka 테이블 엔진</td><td>같은 입력으로 직접 적재와 Kafka 경유 비교. part 수, 지연, ClickHouse 장애 복구, 재처리</td><td>I</td><td><span class="tag todo">예정</span></td></tr>
+  <tr><td>Step 5</td><td><code>DefaultErrorHandler</code>, Dead Letter Topic, 수동 ack, 멱등 프로듀서, gzip</td><td>재시도와 DLT, 전송 보장 수준 비교, 전송 벤치마크</td><td>J</td><td><span class="tag todo">예정</span></td></tr>
+  <tr><td>Step 6</td><td>3브로커 compose, <code>replicas=3</code>, <code>min.insync.replicas=2</code></td><td>복제, 리더 선출, 브로커 장애 실험</td><td>K</td><td><span class="tag todo">예정</span></td></tr>
+  <tr><td>Step 7</td><td>(선택) Kafka Streams 집계</td><td>장비별 1분 ERROR 집계, 임계치 알림 토픽</td><td>L</td><td><span class="tag todo">선택</span></td></tr>
+  <tr><td>마무리</td><td>기업 프로젝트 적용 요약, 벤치마크 종합</td><td>연습에서 배운 것이 실제 프로젝트의 어느 결정으로 이어지는지</td><td>F 확장</td><td><span class="tag todo">예정</span></td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="check">8. 어디를 보면 확인되는가</h2>
+
+<p>세 창을 같이 보면 파이프라인의 어느 구간이 막혔는지 알 수 있다.</p>
+
+<table>
+  <tr><th style="width:30%">창</th><th>보이는 것</th><th style="width:32%">이상 징후 해석</th></tr>
+  <tr><td>Fluent Bit 지표<br><code>http://localhost:2020/api/v1/metrics</code></td><td><code>input.tail.0.records</code>(읽은 건수), <code>output.http.0.proc_records</code>(보낸 건수), <code>retries</code></td><td>input과 output이 다르면 전송 문제. retries가 계속 늘면 수집 서버가 죽었거나 500을 돌려주고 있다</td></tr>
+  <tr><td>앱 통계<br><code>GET localhost:8080/api/logs/stats</code></td><td><code>receivedFromFluentBit</code>, <code>consumed</code></td><td>received와 consumed가 다르면 Kafka 또는 컨슈머 문제</td></tr>
+  <tr><td>Kafka UI<br><code>http://localhost:8085</code></td><td>Topics → app-logs의 파티션별 메시지, Consumers → log-printer의 커밋 오프셋과 lag</td><td>lag이 늘기만 하면 컨슈머가 느린 것. 같은 device_id가 여러 파티션에 있으면 키가 빠진 것</td></tr>
+  <tr><td>앱 콘솔</td><td>기동 시 <code>partitions assigned</code>, 발행 시 <code>발행 성공 ... partition= offset=</code>, 소비 시 <code>[consume #N]</code></td><td><code>발행 실패</code>가 보이면 브로커 접속 문제. 리스너 주소를 먼저 의심한다</td></tr>
+</table>
+
+<h3>처음 돌려 볼 때 순서</h3>
+<pre><code>docker compose -f docker/docker-compose.yml up -d        # Kafka + Kafka UI + Fluent Bit
+./gradlew bootRun                                         # 앱 (8080). 기동 로그에서 partitions assigned 확인
+curl -X POST "localhost:8080/api/logs/simulate?lines=200" # 연습용 로그 200줄 → docker/devices/sim
+curl localhost:8080/api/logs/stats                        # 수 초 뒤 receivedFromFluentBit=200, consumed=200</code></pre>
+
+<p class="sub">이 파일은 <code>docs/README.md</code>의 2절을 시각화한 것이다. 단계가 끝날 때마다 2절 구성도와 7절 표를 함께 갱신한다.</p>
+
+</main>
+</body>
+</html>

@@ -32,7 +32,9 @@ public class LogEventConsumer {
             groupId = "${app.kafka.consumer-groups.printer}"
     )
     public void onLogEvent(@Payload LogEvent event,
-                           @Header(KafkaHeaders.RECEIVED_KEY) String key,
+                           // 키 없이 보낸 메시지는 이 헤더 자체가 없다. 필수로 두면 "Missing header" 예외가 나고
+                           // 에러 핸들러가 10번 재시도한 뒤 그 메시지를 건너뛴다. 그래서 required = false.
+                           @Header(name = KafkaHeaders.RECEIVED_KEY, required = false) String key,
                            @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
                            @Header(KafkaHeaders.OFFSET) long offset) {
         long n = consumedCount.incrementAndGet();

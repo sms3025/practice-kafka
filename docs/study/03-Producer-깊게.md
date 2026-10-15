@@ -26,6 +26,16 @@ send(topic, key, value)
 
 이 구조에서 두 가지를 기억하면 된다. `send()`는 **비동기**라 반환 시점에 전송이 끝나지 않았다는 것, 그리고 레코드는 **파티션별로 묶여(batch)** 나간다는 것이다.
 
+> 심화(지금은 넘어가도 된다): 프로듀서 내부의 세 가지 의문.
+>
+> **프로듀서 하나를 모든 스레드가 같이 쓰면 느리지 않은가.** 느리지 않고 대개 더 빠르다. 요청 스레드가 `send()`에서 하는 일은 직렬화, 파티션 결정, 버퍼에 덧붙이기뿐이라 마이크로초 단위로 끝나고, 잠금도 파티션별 큐에만 짧게 걸린다. 네트워크 I/O는 Sender 스레드 하나가 전담한다. 여러 스레드의 메시지가 같은 배치에 모이므로 배치가 빨리 차고 요청 수가 줄어든다. 프로듀서를 여러 개 두면 배치가 잘게 쪼개지고 연결과 버퍼 메모리만 늘어난다. 프로듀서를 나누는 것은 Sender 스레드 하나가 병목이 될 만큼 처리량이 클 때, 또는 트랜잭션을 쓸 때(트랜잭션은 프로듀서 단위다)다. `send()`가 요청 스레드를 붙잡는 경우는 둘이다. 버퍼(`buffer.memory`, 기본 32MB)가 가득 찼을 때, 그리고 보낼 토픽의 메타데이터(파티션 수와 리더)를 모를 때다. 둘 다 최대 `max.block.ms`(기본 60초)까지 기다리고, 넘으면 `Future`가 아니라 예외로 바로 실패한다. 둘 다 브로커가 받아 주지 못한다는 신호이지 프로듀서 개수의 문제가 아니다. 두 번째 경우는 이 프로젝트에서 실제로 겪는다. 단일 브로커를 멈추면 Kafka 4 클라이언트는 메타데이터를 버리고 bootstrap부터 다시 시작한다(`metadata.recovery.strategy=rebootstrap`). 그래서 `send()`가 60초 동안 막힌다(`practice/03` C8).
+>
+> **RecordAccumulator는 무엇인가.** 프로듀서 안의 메모리 버퍼로, 구조는 `Map<TopicPartition, Deque<ProducerBatch>>`다. `send()`는 해당 파티션 큐의 마지막 배치에 레코드를 붙이고(차 있으면 새 배치를 만든다) 빈 `Future`를 돌려준다. Sender 스레드는 준비된 배치(`batch.size`가 찼거나, `linger.ms`가 지났거나, `flush()`가 불렸거나)를 꺼내 **리더 브로커별로 묶어** 요청 하나에 여러 파티션의 배치를 실어 보낸다. 압축도 배치 단위로 이 시점에 일어난다. 재시도할 배치는 큐 앞쪽으로 되돌아간다.
+>
+> **네트워크로 나가는 것은 언제인가.** Sender가 배치를 꺼내 소켓에 쓸 때다. `send()`가 반환된 시점의 메시지는 아직 앱의 JVM 메모리에만 있다. 다만 "소켓에 썼다"도 "기록됐다"는 아니다. 기록이 보장되는 것은 `acks` 조건을 만족한 응답이 와서 `Future`가 완료될 때다. 그래서 `FluentBitIngestController`는 `join()`으로 이 완료를 기다린 뒤에야 2xx를 준다. 그 전에 앱이 죽으면 버퍼 안의 메시지는 사라지지만, Fluent Bit이 2xx를 못 받았으므로 다시 보낸다. 하나 더, `whenComplete` 콜백은 Sender 스레드에서 실행된다. 콜백에서 무거운 일을 하면 그동안 모든 전송이 멈추므로 로그 정도만 남긴다.
+>
+> 더 파고들 곳은 Apache Kafka 소스의 `KafkaProducer`, `RecordAccumulator`, `Sender` 세 클래스다. Step 5에서 압축과 멱등 프로듀서를 다룰 때 배치 구조를 다시 만난다.
+
 ## 2. 왜 비동기인가, 그래서 어떻게 써야 하는가
 
 동기로 한 건씩 보내면 매 건마다 네트워크 왕복을 기다려야 하므로 초당 수백 건이 한계다. 비동기 + 배치면 같은 하드웨어로 초당 수십만 건이 나온다. 대신 "보냈다"와 "브로커에 기록됐다" 사이에 시간 차가 생기고, 그 사이에 실패할 수 있다.
@@ -84,7 +94,7 @@ spring.kafka.producer.properties[linger.ms]=5
 
 Sender 스레드는 파티션별 배치가 `batch.size`(16KB)에 차거나, 첫 레코드가 들어온 뒤 `linger.ms`(5ms)가 지나면 그 배치를 보낸다. `linger.ms=0`이면 레코드가 들어오는 즉시 보내므로 배치가 거의 안 묶이고 요청 수가 폭증한다. `linger.ms=50`이면 50ms 동안 모아 보내므로 요청당 레코드가 많아져 처리량은 오르지만 각 메시지의 지연이 최대 50ms 늘어난다. 처리량과 지연의 전형적인 트레이드오프다.
 
-실험: `linger.ms`를 0, 5, 50으로 바꿔 `generate?count=20000`의 `elapsedMs`를 비교한다. 단일 브로커 로컬이라 차이가 극적이진 않지만 방향은 보인다. Kafka UI → Brokers → 브로커 1 → Metrics 에서 요청 수(`RequestsPerSec`)도 함께 본다.
+실험: `linger.ms`를 0, 5, 50으로 바꿔 `generate?count=20000`의 `elapsedMs`를 비교한다. 단일 브로커 로컬이라 차이가 극적이진 않지만 방향은 보인다. 요청 수와 배치 크기는 앱의 Actuator로 본다. 프로듀서 내부 지표가 `/actuator/metrics/kafka.producer.request.total`, `kafka.producer.batch.size.avg`, `kafka.producer.records.per.request.avg` 같은 이름으로 나온다. 이 compose는 브로커 JMX를 열지 않았으므로 Kafka UI의 Brokers → Metrics에는 값이 없다. 측정을 한 번에 하는 스크립트는 `../practice/03-프로듀서-설정-실험.md` C0에 있다. 2026-10-15 기준 측정에서는 `generate`의 배치가 평균 15.7KB로 `batch.size`(16KB)에 거의 꽉 찼다. 몰아치는 부하에서는 `linger.ms`를 기다리기 전에 배치가 차므로, `linger.ms`보다 `batch.size`의 효과가 크게 보일 것이다.
 
 ### 재시도와 멱등성
 
@@ -92,7 +102,7 @@ Sender 스레드는 파티션별 배치가 `batch.size`(16KB)에 차거나, 첫 
 spring.kafka.producer.retries=3
 ```
 
-브로커가 일시적 오류(리더 선출 중, 네트워크 끊김)를 돌려주면 프로듀서가 자동으로 재시도한다. 실제 상한은 `retries`보다 `delivery.timeout.ms`(기본 2분)다. 그 안에 성공 못 하면 `CompletableFuture`가 예외로 완료된다.
+브로커가 일시적 오류(리더 선출 중, 네트워크 끊김)를 돌려주면 프로듀서가 자동으로 재시도한다. 실제 상한은 `retries`보다 `delivery.timeout.ms`(기본 2분)다. 그 안에 성공 못 하면 `CompletableFuture`가 예외로 완료된다. 이것은 레코드가 일단 버퍼에 들어간 뒤의 이야기다. 브로커가 전부 내려가 메타데이터부터 없으면 레코드는 버퍼에 들어가지도 못하고, `send()` 호출 자체가 `max.block.ms`(기본 60초) 뒤 예외를 던진다. 이 프로젝트처럼 브로커가 하나면 Kafka를 멈추는 순간 이 경우가 된다(2026-10-15 실측).
 
 재시도에는 함정이 있다. 브로커가 기록은 했는데 응답이 유실되면 프로듀서는 재전송하고 **같은 메시지가 두 번 기록**된다. 이를 막는 것이 `enable.idempotence=true`(Kafka 3.0+ 기본값)다. 프로듀서가 각 배치에 일련번호를 붙이고 브로커가 중복을 걸러낸다. Spring Boot 4 + Kafka 4 조합에서는 기본으로 켜져 있으므로 이 프로젝트의 Kafka 구간은 이미 중복이 없다. 하지만 **Fluent Bit → 수집 서버 구간의 재전송은 Kafka 멱등성과 무관**하다. 그 중복을 걸러내는 것이 `(device_id, source, offset)` 멱등키다. Step 5에서 정리한다.
 
@@ -116,7 +126,9 @@ spring.kafka.producer.retries=3
 
 `whenComplete`의 `ex != null` 분기가 전송 실패다. 지금은 로그만 남긴다. 실제 프로젝트에서는 선택지가 세 가지다. 호출자에게 실패를 돌려줘 상위에서 재시도하게 하거나(수집 서버가 Fluent Bit에 500을 주는 것이 이것), 로컬 디스크에 적어두고 나중에 재발행하거나, 포기하고 메트릭만 올린다. 로그 수집은 첫 번째가 맞다. 에이전트가 이미 재시도 장치를 갖고 있기 때문이다.
 
-실험: Kafka를 멈추고(`docker stop kafka`) `POST /api/logs/simulate?lines=50`으로 로그를 쓴 뒤 앱 콘솔을 본다. `발행 실패` ERROR 로그와 함께 Fluent Bit에 500이 나가고, `docker logs fluent-bit`에 retry가 찍힌다. `docker start kafka` 후 밀린 것이 들어오는 것을 확인한다. 유실 건수는 0이어야 한다(`/api/logs/stats`의 `consumed`로 센다).
+실험: Kafka를 멈추고(`docker stop kafka`) `POST /api/logs/simulate?lines=50`으로 로그를 쓴 뒤 앱 콘솔을 본다. 60초 뒤 `Kafka 발행 실패. Fluent Bit 에 재전송을 요청한다` ERROR 로그와 함께 Fluent Bit에 500이 나가고, `docker logs fluent-bit`에 retry가 찍힌다. 60초인 이유는 위 "재시도와 멱등성"의 `max.block.ms`다. `docker start kafka` 후 밀린 것이 들어오는 것을 확인한다. 유실 건수는 0이어야 한다(`/api/logs/stats`의 `consumed`로 센다). 같은 장애에서 `POST /api/logs`로 보낸 한 건은 사라진다. 둘을 나란히 해 보는 절차는 `../practice/03-프로듀서-설정-실험.md` C8과 `../practice/04-fluent-bit-수집경로.md` D5에 있다.
+
+이 실험에서 하나 더 드러난 것이 있다. 처음 코드는 `send()`가 `Future`로만 실패한다고 가정해 `join()`만 try로 감쌌다. 그래서 `send()` 자체가 던진 예외는 컨트롤러 밖으로 새어 나갔다. 500은 Spring의 기본 오류 처리가 대신 돌려줬고, 위의 ERROR 로그는 남지 않았다. 2026-10-15에 `send()` 루프까지 try 안으로 옮겼다(`FluentBitIngestController`). 비동기 API라도 호출 시점에 동기 예외를 던질 수 있다는 것을 기억한다.
 
 ## 확인 질문
 

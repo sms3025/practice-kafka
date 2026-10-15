@@ -3,7 +3,6 @@ package com.practice.kafka.log;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.nio.file.Paths;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -106,7 +105,9 @@ public class LogNormalizer {
         if (m.find()) {
             return m.group(1);
         }
-        String fileName = Paths.get(normalized).getFileName().toString();
+        // Paths.get 은 쓰지 않는다. Windows 에서 "manual://dev-0001.log" 같은 URI 형태의 source 를 넘기면
+        // ':' 때문에 InvalidPathException 이 난다. 마지막 '/' 뒤를 자르는 것으로 충분하다.
+        String fileName = normalized.substring(normalized.lastIndexOf('/') + 1);
         int dot = fileName.lastIndexOf('.');
         return dot > 0 ? fileName.substring(0, dot) : fileName;
     }

@@ -5,8 +5,8 @@
 Step 1의 "REST → Kafka" 구조를 명세서의 "장비 로그 파일 → Fluent Bit → HTTP → 수집 서버 → Kafka" 구조로 바꿨다.
 
 ```
-docker/devices/dev-0001.log ─┐
-docker/devices/dev-0002.log ─┼─ Fluent Bit (tail) ─ HTTP POST ─▶ /ingest/fluentbit ─▶ LogNormalizer ─▶ KafkaTemplate ─▶ app-logs
+docker/devices/sim/dev-0001.log ─┐
+docker/devices/sim/dev-0002.log ─┼─ Fluent Bit (tail) ─ HTTP POST ─▶ /ingest/fluentbit ─▶ LogNormalizer ─▶ KafkaTemplate ─▶ app-logs
    ...        (시뮬레이터가 씀)─┘        ↑ 2xx 아니면 재시도                              (스키마 정규화)      key=device_id
 ```
 
@@ -47,7 +47,7 @@ docker compose -f docker/docker-compose.yml ps     # kafka(healthy), kafka-ui, f
 
 # 1. 앱 실행 (IntelliJ 에서 bootRun 또는 메인 클래스 실행. 작업 디렉터리가 프로젝트 루트여야 docker/devices 경로가 맞는다)
 
-# 2. 장비 로그 200줄 생성 → docker/devices/dev-00NN.log 에 기록됨
+# 2. 장비 로그 200줄 생성 → docker/devices/sim/dev-00NN.log 에 기록됨
 curl -X POST "http://localhost:8080/api/logs/simulate?lines=200"
 
 # 3. 몇 초 안에 Fluent Bit 이 읽어서 보낸다. 수신/소비 건수 확인
@@ -59,7 +59,7 @@ curl -X POST http://localhost:8080/api/logs -H "Content-Type: application/json" 
   -d "{\"deviceId\":\"dev-0001\",\"raw\":\"2026-10-12 14:03:21.123 [WARN] ECU temperature high: 97C\"}"
 ```
 
-`http/step2.http`에 같은 요청이 있다.
+`http/step2.http`에 같은 요청이 있다. 위 명령은 bash 기준이다. Windows PowerShell에서 따라 하는 절차는 `../practice/04-fluent-bit-수집경로.md`에 있다. 2026-10-14에 3번까지 실행해 8초 안에 `{"receivedFromFluentBit":200,"consumed":200}`이 나오는 것을 확인했다(깨끗한 환경은 아니었다).
 
 ## 확인해야 할 것
 
@@ -68,7 +68,7 @@ curl -X POST http://localhost:8080/api/logs -H "Content-Type: application/json" 
 Kafka UI(http://localhost:8085)의 Topics → app-logs → Messages에서 값이 아래처럼 명세서 스키마의 snake_case JSON인지 확인한다.
 
 ```json
-{"device_id":"dev-0007","source":"/var/log/devices/dev-0007.log","event_time":"2026-10-12T05:03:21.123Z",
+{"device_id":"dev-0007","source":"/var/log/devices/sim/dev-0007.log","event_time":"2026-10-12T05:03:21.123Z",
  "collected_at":"2026-10-12T05:03:22.004Z","offset":1842,"raw":"2026-10-12 14:03:21.123 [WARN] ECU temperature high: 97C",
  "level":"WARN","message":"ECU temperature high: 97C"}
 ```
@@ -77,10 +77,10 @@ Fluent Bit 자체 지표는 http://localhost:2020/api/v1/metrics 에서 본다. 
 
 ## 무손실 실험 (해볼 것)
 
-1. Spring 앱을 끈 채로 `docker compose ... restart fluent-bit` 후, 다른 터미널에서 `docker/devices/dev-0001.log`에 줄을 몇 개 직접 덧붙인다(`echo "2026-10-12 15:00:00.000 [ERROR] manual test" >> docker/devices/dev-0001.log`).
+1. Spring 앱을 끈 채로 `docker compose ... restart fluent-bit` 후, 다른 터미널에서 `docker/devices/sim/dev-0001.log`에 줄을 몇 개 직접 덧붙인다(bash: `echo "2026-10-12 15:00:00.000 [ERROR] manual test" >> docker/devices/sim/dev-0001.log`). Fluent Bit은 `sim/` 아래만 읽으므로 `docker/devices/` 바로 아래에 쓴 파일은 무시된다. PowerShell에서는 `echo >>` 대신 `Add-Content ... -Encoding ascii`를 쓴다(`practice/04` D4).
 2. `docker logs fluent-bit`에서 connection refused와 retry 메시지를 본다. http://localhost:2020/api/v1/metrics 의 `retries`가 늘어난다.
 3. Spring 앱을 띄운다. 몇 초 뒤 쌓였던 줄이 전부 들어오고 `consumed`가 늘어난다.
-4. 이번에는 Kafka를 멈춘다(`docker stop kafka`). 로그를 더 쓰면 Spring이 500을 돌려주고 Fluent Bit이 재시도한다. `docker start kafka` 후 복구되는 것을 본다.
+4. 이번에는 Kafka를 멈춘다(`docker stop kafka`). 로그를 더 쓰면 Spring이 500을 돌려주고 Fluent Bit이 재시도한다. 500은 바로 나오지 않고 요청마다 60초 뒤에 나온다. 브로커가 모두 끊기면 Kafka 4 클라이언트가 메타데이터를 버리고, `send()`가 `max.block.ms`만큼 막히기 때문이다. `docker start kafka` 후 복구되는 것을 본다(2026-10-15 실측. `practice/04` D5).
 
 이 실험으로 "수집 서버가 죽어도, Kafka가 죽어도 로그는 유실되지 않는다. 대신 늦게 도착한다"를 확인한다.
 
@@ -101,3 +101,5 @@ at-least-once는 "유실 없음"의 대가로 "중복 가능"을 받아들이는
 ## 결정 비교: Fluent Bit → Kafka 직접 vs → HTTP → 수집 서버 → Kafka
 
 Fluent Bit에는 `kafka` 출력 플러그인이 있어 수집 서버 없이 바로 토픽에 쓸 수 있다. 홉이 하나 줄어 지연과 운영 요소가 줄지만, 1,000대 장비가 브로커 주소와 Kafka 프로토콜 포트(9092)에 직접 접근해야 하고, 정규화·인증·유량 제어를 장비마다 설정해야 한다. 망분리 환경에서 장비가 아는 주소는 HTTP 엔드포인트 하나인 편이 보안·운영상 단순하다. 명세서가 HTTP 경로를 택한 이유가 이것이며, 연습 프로젝트도 따른다. 벤치마크 산출물에서는 두 경로의 처리량·지연을 실측해 비교하면 좋은 근거가 된다.
+
+반대쪽 끝에도 같은 종류의 질문이 있다. 수집 서버 뒤에 Kafka를 둘 것인가, ClickHouse에 바로 넣을 것인가다. 명세서는 직접 적재를 기본으로 두고 Kafka를 "대규모 대비" 추가 기능으로 두었다. 이 저장소는 Step 4에서 ClickHouse 적재를 만든 뒤, Step 4+에서 같은 입력을 두 경로로 동시에 흘려 INSERT 횟수, part 수, 지연, ClickHouse 장애 때의 복구를 측정해 비교한다. 계획은 `../plan/00-학습계획서.md`의 Step 4+ 절에 있다.
