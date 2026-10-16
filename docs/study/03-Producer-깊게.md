@@ -96,6 +96,8 @@ Sender 스레드는 파티션별 배치가 `batch.size`(16KB)에 차거나, 첫 
 
 실험: `linger.ms`를 0, 5, 50으로 바꿔 `generate?count=20000`의 `elapsedMs`를 비교한다. 단일 브로커 로컬이라 차이가 극적이진 않지만 방향은 보인다. 요청 수와 배치 크기는 앱의 Actuator로 본다. 프로듀서 내부 지표가 `/actuator/metrics/kafka.producer.request.total`, `kafka.producer.batch.size.avg`, `kafka.producer.records.per.request.avg` 같은 이름으로 나온다. 이 compose는 브로커 JMX를 열지 않았으므로 Kafka UI의 Brokers → Metrics에는 값이 없다. 측정을 한 번에 하는 스크립트는 `../practice/03-프로듀서-설정-실험.md` C0에 있다. 2026-10-15 기준 측정에서는 `generate`의 배치가 평균 15.7KB로 `batch.size`(16KB)에 거의 꽉 찼다. 몰아치는 부하에서는 `linger.ms`를 기다리기 전에 배치가 차므로, `linger.ms`보다 `batch.size`의 효과가 크게 보일 것이다.
 
+실제 로그로 처리량 한계를 잰 결과(`../result/benchmark-kafka-throughput.md`)에서는 이 두 값이 천장을 정했다. 프로듀서는 브로커 연결 하나에 응답을 기다리지 않은 요청을 최대 5개까지만 보내므로, 처리량은 "5 × 요청당 레코드 수 ÷ 요청 한 번의 왕복 시간"을 넘지 못한다. 16KB 배치로는 초당 40만 줄(docker 안, 왕복 약 1ms)에서 막혔고, 호스트의 앱에서 보낼 때는 왕복이 약 5ms로 길어져 10만 줄도 못 버텼다. `batch.size=131072`, `linger.ms=20`으로 바꾸자 같은 브로커가 90만 줄을 p99 10ms로 받았다. 배치를 키웠는데 지연이 오히려 준 것은, 요청 수 상한에 닿으면 레코드가 버퍼에서 줄을 서기 때문이다.
+
 ### 재시도와 멱등성
 
 ```properties
@@ -112,7 +114,7 @@ spring.kafka.producer.retries=3
 # spring.kafka.producer.compression-type=lz4
 ```
 
-지금은 꺼져 있다. 켜면 배치 단위로 압축해 보낸다. 로그처럼 반복이 많은 텍스트는 lz4로 3~5배, zstd로 그 이상 줄어든다. 네트워크와 브로커 디스크를 아끼는 대신 프로듀서 CPU를 쓴다. 명세서의 "전송 최적화(압축)"는 Fluent Bit → 수집 서버 구간(gzip)과 이 구간 둘 다 해당한다. Step 5에서 켜고 브로커 디스크 사용량(`docker exec kafka du -sh /var/lib/kafka/data`)을 비교한다.
+지금은 꺼져 있다. 켜면 배치 단위로 압축해 보낸다. 로그처럼 반복이 많은 텍스트는 lz4로 3~5배, zstd로 그 이상 줄어든다. 네트워크와 브로커 디스크를 아끼는 대신 프로듀서 CPU를 쓴다. 명세서의 "전송 최적화(압축)"는 Fluent Bit → 수집 서버 구간(gzip)과 이 구간 둘 다 해당한다. Step 5에서 켜고 브로커 디스크 사용량(`docker exec kafka du -sh /var/lib/kafka/data`)을 비교한다. 부하 테스트에서 실제 OHT 로그 JSON은 lz4로 0.23배(4.3분의 1)가 됐다. 네트워크가 좁은 경로에서는 압축이 처리량을 올렸고(앱 경유 약 10만 → 13.9만 줄/s), 넓은 경로에서는 보내는 쪽 CPU만 더 써서 천장을 낮췄다(브로커 단독 90만 → 70만). 압축은 "켜면 좋다"가 아니라 대역과 CPU 중 무엇이 모자란지에 따라 정한다(`../result/benchmark-kafka-throughput.md` 7절).
 
 ## 4. 파티셔너와 키
 

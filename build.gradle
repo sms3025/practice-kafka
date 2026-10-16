@@ -30,6 +30,9 @@ dependencies {
     // --- 운영 지표 (health, metrics 확인용)
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
 
+    // --- ClickHouse 공식 Java 클라이언트 (부하 테스트의 적재 컨슈머, sink/ 패키지). RowBinary 로 INSERT 한다.
+    implementation 'com.clickhouse:client-v2:0.10.0'
+
     // --- 테스트
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.kafka:spring-kafka-test'

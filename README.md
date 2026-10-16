@@ -58,6 +58,8 @@ Kafka UI: http://localhost:8085 · Fluent Bit 지표: http://localhost:2020/api/
 | Step 1 | `KafkaTemplate` / `@KafkaListener`, JSON 직렬화, 키와 파티션 | B, C | [result/step1](docs/result/step1-producer-consumer.md), [study/03](docs/study/03-Producer-깊게.md), [04](docs/study/04-Consumer-깊게.md) | 구현 완료, 실행 검증 전 |
 | Step 2 | 명세서 스키마, Fluent Bit → HTTP → 수집 서버 → Kafka, at-least-once 계약 | D | [result/step2](docs/result/step2-fluentbit-수집경로.md), [study/02](docs/study/02-메시지의-여행.md) | 구현 완료, 실행 검증 전 |
 | Step 2+ | OHT 생성기(대외비) 연동, 로그 형식 3종 파서, `docs/study` 교재 | E, F | [study/05](docs/study/05-OHT-로그-연동.md), [06](docs/study/06-실습-워크북.md) | 구현 완료, 실행 검증 전 |
+| 부하 테스트 | 실제 OHT 로그를 초당 10만 줄부터 올려 브로커 단독·앱 경유 처리량 한계를 재고 프로듀서 설정 셋을 비교 | | [result/benchmark-kafka-throughput](docs/result/benchmark-kafka-throughput.md) | 측정 완료 (`kafka-load-test` 브랜치) |
+| 전송 구간 병목 | 모든 구간을 docker 안에 두고 장비 → 수집 서버(HTTP, gzip), 수집 서버 → Kafka, Kafka → ClickHouse(client-v2 RowBinary, 컨슈머 1~12)를 각각·함께 측정 | | [result/benchmark-transport](docs/result/benchmark-transport.md) | 측정 완료 (`kafka-load-test` 브랜치) |
 | Step 3 | 파티션과 컨슈머 그룹, `concurrency`, 앱 2개 기동, 리밸런스 | G | `result/step3`, `study/07` | 예정 |
 | Step 4 | ClickHouse 단독 체험(part와 병합), 테이블 설계와 멱등키 중복 제거, TTL, Spring 배치 적재, Grafana, 저장 벤치마크 | H | `result/step4`, `benchmark-storage`, `study/08`, `09`, `10` | 예정 |
 | Step 4+ | 적재 경로 비교: 직접 적재, 비동기 INSERT, Kafka 경유, Kafka 테이블 엔진. 평시 부하, ClickHouse 장애, 재처리 | I | `result/step4plus`, `benchmark-ingest-path`, `study/11` | 예정 |

@@ -1,0 +1,126 @@
+# =============================================================================
+# 부하 테스트 구성 (kafka-load-test 브랜치). 기본 compose 에 겹쳐서 쓴다.
+#
+#   .\gradlew.bat bootJar
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.loadtest.yml up -d
+#
+# 운영과 같은 모양으로 모든 구간을 docker 네트워크 안에 둔다. 호스트(Windows)의 앱을 쓰면 Docker Desktop 의 포트 전달이
+# 약 50MB/s 에서 막혀(docs/result/benchmark-kafka-throughput.md 7절) 운영에 없는 천장을 재게 된다.
+#
+#   k6(장비 흉내) ─HTTP─▶ ingest(수집 서버) ─▶ kafka ─▶ sink(적재 컨슈머) ─RowBinary─▶ clickhouse
+#
+# ingest 와 sink 는 같은 jar 를 역할만 바꿔 띄운다. jar 를 다시 만들면 컨테이너만 재시작하면 된다(이미지 빌드 없음).
+# k6 는 상주하지 않고 scripts/loadtest/devices.ps1 이 계단마다 docker run 으로 띄운다.
+# =============================================================================
+
+services:
+  kafka:
+    environment:
+      # 보존 규칙(retention.bytes 등)을 검사하는 주기. 기본 5분이면 부하 중 초당 수백 MB 가 5분 동안 쌓인 뒤에야 지워져
+      # 2026-10-15 측정에서 Docker 가상 디스크가 101GB 까지 커졌다. 30초로 줄여 디스크 사용량을 묶어 둔다.
+      # 실행 중에 바꿀 수 없는 설정이라 이 파일을 겹치면 kafka 컨테이너가 다시 만들어진다(볼륨은 그대로).
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: "30000"
+
+  clickhouse:
+    # 로그 저장소(명세서 지정). 25.8 은 LTS 다.
+    image: clickhouse/clickhouse-server:25.8
+    container_name: clickhouse
+    ports:
+      - "8123:8123"   # HTTP 인터페이스. http://localhost:8123/play 는 브라우저 SQL 창 (사용자 app / 암호 app)
+    environment:
+      # 처음 뜰 때 이 DB 와 사용자를 만든다. 앱의 app.clickhouse.* 와 맞춘다.
+      CLICKHOUSE_DB: logs
+      CLICKHOUSE_USER: app
+      CLICKHOUSE_PASSWORD: app
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      # 데이터 디렉터리가 비어 있을 때만 실행되는 초기화 SQL (logs.app_logs 테이블)
+      - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
+      # part 가 생기고 합쳐지는 이력(system.part_log)을 남긴다
+      - ./clickhouse/config.d/part_log.xml:/etc/clickhouse-server/config.d/part_log.xml:ro
+    ulimits:
+      # ClickHouse 는 part 파일을 많이 연다. 공식 이미지 문서가 권하는 값.
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user app --password app --query 'SELECT 1' > /dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  ingest:
+    # 수집 서버 역할. POST /ingest/fluentbit 를 받아 Kafka 의 loadtest-logs(12 파티션)로 보낸다.
+    # 2-2 구간(앱 → Kafka)을 재는 LoadTestRunner(/api/loadtest/*)도 이 컨테이너에서 돈다.
+    image: eclipse-temurin:25-jre
+    container_name: ingest
+    ports:
+      - "18080:8080"  # 스크립트가 /api/loadtest/* 를 부르는 제어용. 부하 자체는 docker 네트워크 안에서 ingest:8080 으로 온다
+    working_dir: /app
+    volumes:
+      - ../build/libs/practice-kafka-0.0.1-SNAPSHOT.jar:/app/app.jar:ro
+      # 대외비 생성기 로그. 2-2 구간의 입력이자 k6 요청 본문의 재료다. 읽기 전용
+      - ../tools:/app/tools:ro
+      # payload.jsonl, fluentbit-*.jsonl 을 여기 쓴다 (호스트의 build/loadtest, gitignore)
+      - ../build/loadtest:/app/build/loadtest
+    command:
+      - java
+      # 힙을 고정한다. 컨테이너에 메모리 제한이 없으면 JVM 이 VM 전체 메모리의 1/4 을 잡아, 옆의 Kafka·ClickHouse 와 다툰다
+      - -Xms2g
+      - -Xmx2g
+      - -jar
+      - app.jar
+      - --spring.kafka.bootstrap-servers=kafka:19092
+      - --app.kafka.topics.app-logs.name=loadtest-logs
+      - --app.kafka.topics.app-logs.partitions=12
+      # 이 프로세스는 보내기만 한다. 기본 팩토리의 리스너(log-printer)를 끈다
+      - --spring.kafka.listener.auto-startup=false
+      # 프로듀서 배치. 기본값은 2026-10-15 측정에서 권장한 128KB / 20ms. 기준선(16KB / 5ms)을 재려면 환경 변수로 바꾼다
+      - --spring.kafka.producer.batch-size=${INGEST_BATCH_SIZE:-131072}
+      - --spring.kafka.producer.properties[linger.ms]=${INGEST_LINGER_MS:-20}
+      # 메시지마다 찍는 DEBUG 로그는 부하 중에 콘솔이 병목이 되므로 끈다
+      - --logging.level.com.practice.kafka.producer=INFO
+      - --logging.level.com.practice.kafka.ingest=INFO
+      # 수집 서버는 요청마다 Kafka ack 를 기다리는 동안 요청 스레드를 붙잡는다. 아래 셋이 그 스레드와 연결을 정한다. 기본값은 Spring Boot 기본값과 같다.
+      #   가상 스레드: true 면 Tomcat 이 요청마다 가상 스레드를 쓴다. ack 를 기다리는 동안 OS 스레드를 놓아주므로 200개 상한이 사라진다
+      #   Tomcat 스레드 상한: 가상 스레드를 안 쓸 때 동시에 처리할 수 있는 요청 수
+      #   keep-alive 요청 수: 연결 하나로 이만큼 받으면 서버가 연결을 닫는다. 그 순간 클라이언트가 보낸 요청은 connection reset 이 된다. -1 은 제한 없음
+      - --spring.threads.virtual.enabled=${INGEST_VIRTUAL_THREADS:-false}
+      - --server.tomcat.threads.max=${INGEST_TOMCAT_THREADS:-200}
+      - --server.tomcat.max-keep-alive-requests=${INGEST_MAX_KEEPALIVE_REQUESTS:-100}
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  sink:
+    # 적재 컨슈머 역할. loadtest-logs 를 배치로 읽어 ClickHouse 에 RowBinary 로 INSERT 한다.
+    # 컨슈머 스레드 수는 SINK_CONCURRENCY 로 바꾸고 컨테이너를 다시 만든다 (scripts/loadtest/sink.ps1 이 한다)
+    image: eclipse-temurin:25-jre
+    container_name: sink
+    ports:
+      - "18081:8080"  # 제어용 (/api/sink/stats)
+    working_dir: /app
+    volumes:
+      - ../build/libs/practice-kafka-0.0.1-SNAPSHOT.jar:/app/app.jar:ro
+    command:
+      - java
+      - -Xms3g
+      - -Xmx3g
+      - -jar
+      - app.jar
+      - --spring.kafka.bootstrap-servers=kafka:19092
+      - --app.kafka.topics.app-logs.name=loadtest-logs
+      - --app.kafka.topics.app-logs.partitions=12
+      - --spring.kafka.listener.auto-startup=false
+      - --app.sink.enabled=true
+      - --app.sink.concurrency=${SINK_CONCURRENCY:-1}
+      - --app.clickhouse.url=http://clickhouse:8123
+    depends_on:
+      kafka:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+
+volumes:
+  clickhouse-data:
