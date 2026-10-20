@@ -1,0 +1,10 @@
+# docker/grafana/dashboards 폴더의 JSON 을 대시보드로 올린다 (Step 4).
+# 화면에서 고친 내용은 저장되지 않는다(allowUiUpdates: false). 바꾸려면 JSON 파일을 고치고 Grafana 를 재시작한다.
+apiVersion: 1
+providers:
+  - name: practice-kafka
+    folder: practice-kafka
+    type: file
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards

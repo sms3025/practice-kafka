@@ -1,0 +1,101 @@
+{
+  "uid": "practice-kafka-logs",
+  "title": "장비 로그 (ClickHouse)",
+  "description": "Step 4. logs.app_logs 를 읽는 대시보드. 쿼리 설명은 docs/study/10-대시보드.md",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "time": { "from": "now-30d", "to": "now" },
+  "refresh": "10s",
+  "tags": ["practice-kafka"],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "저장된 행 수 (선택 기간, 중복 포함)",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 5 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+          "editorType": "sql",
+          "queryType": "table",
+          "format": 1,
+          "rawSql": "SELECT count() AS rows FROM logs.app_logs WHERE $__timeFilter(event_time)"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "레벨별 로그 수 (이벤트 시각 기준)",
+      "gridPos": { "x": 6, "y": 0, "w": 18, "h": 9 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "stacking": { "mode": "normal" }, "fillOpacity": 80 } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+          "editorType": "sql",
+          "queryType": "timeseries",
+          "format": 0,
+          "rawSql": "SELECT $__timeInterval(event_time) AS time, ifNull(level, 'NONE') AS level, count() AS logs\nFROM logs.app_logs\nWHERE $__timeFilter(event_time)\nGROUP BY time, level\nORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "barchart",
+      "title": "ERROR 가 많은 장비 상위 10",
+      "gridPos": { "x": 0, "y": 5, "w": 6, "h": 12 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "options": { "orientation": "horizontal", "xField": "device_id" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+          "editorType": "sql",
+          "queryType": "table",
+          "format": 1,
+          "rawSql": "SELECT device_id, count() AS errors\nFROM logs.app_logs\nWHERE $__timeFilter(event_time) AND level = 'ERROR'\nGROUP BY device_id\nORDER BY errors DESC\nLIMIT 10"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "수집 → 저장 지연 ms (inserted_at - collected_at)",
+      "gridPos": { "x": 6, "y": 9, "w": 18, "h": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+          "editorType": "sql",
+          "queryType": "timeseries",
+          "format": 0,
+          "rawSql": "SELECT $__timeInterval(inserted_at) AS time,\n       quantile(0.5)(dateDiff('millisecond', collected_at, inserted_at)) AS p50,\n       quantile(0.99)(dateDiff('millisecond', collected_at, inserted_at)) AS p99\nFROM logs.app_logs\nWHERE $__timeFilter(inserted_at)\nGROUP BY time\nORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "최근 ERROR 100건",
+      "gridPos": { "x": 0, "y": 17, "w": 24, "h": 10 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+          "editorType": "sql",
+          "queryType": "table",
+          "format": 1,
+          "rawSql": "SELECT event_time, device_id, category, message\nFROM logs.app_logs\nWHERE $__timeFilter(event_time) AND level = 'ERROR'\nORDER BY event_time DESC\nLIMIT 100"
+        }
+      ]
+    }
+  ]
+}

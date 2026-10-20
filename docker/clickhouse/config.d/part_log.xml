@@ -1,0 +1,13 @@
+<!--
+  system.part_log 을 켠다. ClickHouse 는 INSERT 한 번마다 디스크에 part 하나를 만들고(NewPart),
+  백그라운드에서 작은 part 들을 합친다(MergeParts). 적재 부하에서 병합이 따라가는지 보는 지표다.
+  flush 주기는 7.5초라서, 조회 직전에 SYSTEM FLUSH LOGS 를 실행한다.
+-->
+<clickhouse>
+    <part_log>
+        <database>system</database>
+        <table>part_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+    </part_log>
+</clickhouse>

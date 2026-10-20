@@ -58,6 +58,14 @@ while (running) {
 
 `spring.json.trusted.packages`는 역직렬화를 허용할 패키지 목록이다. 임의의 클래스를 역직렬화하게 두면 보안 취약점이 되므로 Spring이 기본으로 막아둔다.
 
+## 배치 리스너와 컨테이너 팩토리 (Step 4)
+
+`@KafkaListener`는 기본적으로 메시지 한 건씩 메서드를 부른다. 팩토리에 `setBatchListener(true)`를 하면 `poll()` 한 번에 받은 묶음을 `List`로 넘긴다. 저장소에 묶어 넣어야 하는 적재 컨슈머(`sink/ClickHouseSinkListener`)가 이것을 쓴다.
+
+리스너는 어떤 팩토리로 만들지를 `containerFactory`로 고른다. 지정하지 않으면 Spring Boot가 만든 기본 팩토리(`kafkaListenerContainerFactory`)를 쓰고, `spring.kafka.listener.*` 설정(예: `concurrency`)은 그 기본 팩토리에만 걸린다. 적재 컨슈머는 배치용 팩토리(`sinkContainerFactory`)를 따로 만들어 스레드 수와 에러 처리를 따로 정한다.
+
+에러 핸들러는 리스너가 예외를 던졌을 때 무엇을 할지 정한다. 기본 `DefaultErrorHandler`는 쉬지 않고 9번 다시 시도하고(모두 10번), 그래도 실패하면 그 메시지(배치면 묶음)를 건너뛰고 커밋한다. 적재 컨슈머는 저장소 장애 동안 로그를 버리지 않도록 `FixedBackOff(1초, 무제한)`으로 바꿨다. 건너뛸 메시지를 별도 토픽(DLT)으로 빼는 것은 Step 5에서 다룬다.
+
 ## Spring Boot 4 / Spring Kafka 4에서 달라진 점
 
 이 프로젝트가 3.x 자료와 다른 부분을 정리한다.

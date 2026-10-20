@@ -6,7 +6,7 @@ Spring 앱 없이 Kafka만 띄워 메시지를 주고받는다. Kafka에 들어 
 
 ## A1. 인프라 기동
 
-**왜 하는가.** `docker/docker-compose.yml` 하나가 컨테이너 셋을 띄운다. kafka는 브로커, kafka-ui는 웹 화면, fluent-bit은 Step 2에서 쓸 수집 에이전트다. kafka가 "healthy"가 되어야 나머지가 의미 있다.
+**왜 하는가.** `docker/docker-compose.yml` 하나가 컨테이너 다섯을 띄운다. kafka는 브로커, kafka-ui는 웹 화면, fluent-bit은 Step 2에서 쓸 수집 에이전트, clickhouse와 grafana는 Step 4(07 파일)에서 쓸 저장소와 대시보드다. kafka가 "healthy"가 되어야 나머지가 의미 있다.
 
 **할 것.**
 
@@ -17,9 +17,9 @@ docker compose -f docker/docker-compose.yml ps
 
 `ps`는 30초쯤 뒤에 한 번 더 친다. 처음 실행이면 이미지를 내려받느라 몇 분 걸린다.
 
-**보여야 하는 것.** `ps`의 STATUS 열에서 kafka가 `Up ... (healthy)`, kafka-ui와 fluent-bit이 `Up ...`. kafka가 `(health: starting)`이면 아직 기동 중이다. compose 파일의 healthcheck가 10초마다 브로커에 접속해 보고 성공하면 healthy로 바꾼다. kafka-ui는 kafka가 healthy가 된 뒤에야 뜬다(`depends_on: condition: service_healthy`).
+**보여야 하는 것.** `ps`의 STATUS 열에서 kafka와 clickhouse가 `Up ... (healthy)`, kafka-ui, fluent-bit, grafana가 `Up ...`. kafka가 `(health: starting)`이면 아직 기동 중이다. compose 파일의 healthcheck가 10초마다 브로커에 접속해 보고 성공하면 healthy로 바꾼다. kafka-ui는 kafka가 healthy가 된 뒤에야 뜬다(`depends_on: condition: service_healthy`). 2026-10-19에 빈 볼륨에서 `up -d`부터 다섯 개가 모두 뜨기까지 약 40초 걸렸다. grafana는 첫 기동 때 인터넷에서 플러그인을 받는다.
 
-**안 될 때.** `port is already allocated`가 나오면 9092, 8085, 2020 중 하나를 다른 프로그램이 쓰고 있다. `Get-NetTCPConnection -LocalPort 9092 -State Listen`으로 어떤 프로세스인지 찾는다. kafka가 계속 `unhealthy`면 `docker logs kafka`의 마지막 30줄을 본다.
+**안 될 때.** `port is already allocated`가 나오면 9092, 8085, 2020, 8123, 3000 중 하나를 다른 프로그램이 쓰고 있다. `Get-NetTCPConnection -LocalPort 9092 -State Listen`으로 어떤 프로세스인지 찾는다. kafka가 계속 `unhealthy`면 `docker logs kafka`의 마지막 30줄을 본다.
 
 ## A2. Kafka UI 둘러보기
 
@@ -72,7 +72,7 @@ docker exec -it kafka /opt/kafka/bin/kafka-console-producer.sh --bootstrap-serve
 
 4. 컨슈머 탭을 본다. 다 봤으면 두 탭 모두 Ctrl+C로 끝낸다.
 
-**보여야 하는 것.** 컨슈머 탭에 `Partition:N  키  값` 형식으로 찍힌다. 키 이름은 일부러 골랐다. 파티션이 3개일 때 해시 결과로 `order`는 파티션 2, `cart`는 0, `item`은 1로 간다(2026-10-15 확인). 계산식이 `murmur2(키) % 3`으로 고정이라 어느 PC에서 해도 같다.
+**보여야 하는 것.** 컨슈머 탭에 `Partition:N  키  값` 형식으로 찍힌다. 키 이름은 일부러 골랐다. 파티션이 3개일 때 해시 결과로 `order`는 파티션 2, `cart`는 0, `item`은 1로 간다(2026-10-15, 10-19 확인). 계산식이 `murmur2(키) % 3`으로 고정이라 어느 PC에서 해도 같다.
 
 ```
 Partition:2	order	first
@@ -132,7 +132,7 @@ docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:90
 3. 앱을 켜고 앱 콘솔을 30초쯤 본다. Kafka UI도 새로 고쳐 본다.
 4. 앱을 끄고, 1번에서 바꾼 것을 `localhost:9092`로 되돌린 뒤 `up -d`를 다시 친다.
 
-**보여야 하는 것.** 앱 콘솔에 `kafka`라는 호스트를 찾지 못했다는 경고(`UnknownHostException: kafka`, `Error connecting to node kafka:9092` 같은 문구)가 반복되고, 정상 기동 때 나오는 `partitions assigned`가 끝내 안 나온다. 반면 Kafka UI는 계속 정상이다.
+**보여야 하는 것.** 앱 콘솔에 `kafka`라는 호스트를 찾지 못했다는 경고(`UnknownHostException: kafka`, `Error connecting to node kafka:9092` 같은 문구)가 반복되고, 정상 기동 때 나오는 `partitions assigned`가 끝내 안 나온다. 반면 Kafka UI는 계속 정상이다. 2026-10-19에 확인한 경고는 `Error connecting to node kafka:9092 (id: 1 rack: null isFenced: false)`와 `java.net.UnknownHostException: 알려진 호스트가 없습니다 (kafka)`였다. kafka 컨테이너의 healthcheck는 그동안에도 healthy였다. 컨테이너 안에서는 `kafka`라는 이름이 풀리기 때문이다.
 
 **생각해 볼 것.** 같은 브로커인데 왜 Kafka UI는 되고 Spring 앱만 안 되는가? Kafka UI는 어느 리스너(포트)로 붙고, 그 리스너의 명함에는 어떤 주소가 적혀 있는가? (`../study/01-환경과-프로젝트-구조.md` 4절)
 

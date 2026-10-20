@@ -15,8 +15,11 @@ import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * "차량/장비가 로컬에 .txt 로그를 쌓는다" 는 상황을 흉내 내는 시뮬레이터.
@@ -44,11 +47,15 @@ public class DeviceLogSimulator {
             "DOOR state changed: %d",
             "ECU watchdog reset count=%d");
 
+
     private final Path dir;
-    private final int deviceCount;
-    private final int linesPerSecond;
-    private final boolean enabled;
     private final ZoneId zone;
+    /** 장비 수와 초당 줄 수. 설정값으로 시작하고, {@link #start} 로 실행 중에 바꿀 수 있다(Step 4+ 비교 실험). */
+    private volatile int deviceCount;
+    private volatile int linesPerSecond;
+    /** 이 시각(epoch ms)까지 1초마다 쓴다. 0 이면 멈춤. app.simulator.enabled=true 면 끝없이. */
+    private volatile long runUntilMillis;
+    private final AtomicLong written = new AtomicLong();
 
     public DeviceLogSimulator(@Value("${app.simulator.dir}") String dir,
                               @Value("${app.simulator.devices}") int deviceCount,
@@ -58,29 +65,62 @@ public class DeviceLogSimulator {
         this.dir = Path.of(dir);
         this.deviceCount = deviceCount;
         this.linesPerSecond = linesPerSecond;
-        this.enabled = enabled;
+        this.runUntilMillis = enabled ? Long.MAX_VALUE : 0;
         this.zone = ZoneId.of(zone);
     }
 
-    /** app.simulator.enabled=true 이면 1초마다 lines-per-second 줄을 여러 장비 파일에 나눠 쓴다. */
+    /** 켜져 있으면 1초마다 lines-per-second 줄을 여러 장비 파일에 나눠 쓴다. */
     @Scheduled(fixedRate = 1000)
     public void tick() {
-        if (enabled) {
+        if (System.currentTimeMillis() < runUntilMillis) {
             writeBurst(linesPerSecond);
         }
     }
 
-    /** 즉시 count 줄을 쓴다. REST 로 수동 호출하는 용도. */
+    /**
+     * 장비 devices 대에 초당 linesPerSecond 줄을 seconds 초 동안 쓴다 (Step 4+ 평시 부하).
+     * 장비 1대가 초당 60줄을 쓰는 실제 차량에 맞추려면 linesPerSecond = devices x 60 으로 준다.
+     */
+    public void start(int devices, int linesPerSecond, int seconds) {
+        this.deviceCount = devices;
+        this.linesPerSecond = linesPerSecond;
+        this.runUntilMillis = System.currentTimeMillis() + seconds * 1000L;
+        log.info("시뮬레이터 시작: 장비 {}대, 초당 {}줄, {}초", devices, linesPerSecond, seconds);
+    }
+
+    public void stop() {
+        this.runUntilMillis = 0;
+    }
+
+    /** 지금까지 쓴 줄 수 (앱이 뜬 뒤 누적). 적재 경로별로 빠짐없이 들어갔는지 맞춰 보는 기준이다. */
+    public long writtenCount() {
+        return written.get();
+    }
+
+    public boolean running() {
+        return System.currentTimeMillis() < runUntilMillis;
+    }
+
+    /**
+     * 즉시 count 줄을 쓴다. 줄마다 장비를 골라 장비별로 모은 뒤 파일마다 한 번에 덧붙인다.
+     * 줄마다 파일을 열고 닫으면 초당 수천 줄에서 쓰기가 밀린다(Windows 바인드 마운트에서 특히).
+     */
     public int writeBurst(int count) {
         try {
             Files.createDirectories(dir);
             var rnd = ThreadLocalRandom.current();
+            int devices = deviceCount;
+            Map<String, StringBuilder> byDevice = new HashMap<>();
             for (int i = 0; i < count; i++) {
-                String deviceId = String.format("dev-%04d", rnd.nextInt(deviceCount) + 1);
-                Path file = dir.resolve(deviceId + ".log");
-                Files.writeString(file, randomLine() + System.lineSeparator(), StandardCharsets.UTF_8,
+                String deviceId = String.format("dev-%04d", rnd.nextInt(devices) + 1);
+                byDevice.computeIfAbsent(deviceId, k -> new StringBuilder())
+                        .append(randomLine()).append(System.lineSeparator());
+            }
+            for (Map.Entry<String, StringBuilder> e : byDevice.entrySet()) {
+                Files.writeString(dir.resolve(e.getKey() + ".log"), e.getValue(), StandardCharsets.UTF_8,
                         StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             }
+            written.addAndGet(count);
             log.debug("시뮬레이터: {}줄 기록 → {}", count, dir.toAbsolutePath());
             return count;
         } catch (IOException e) {

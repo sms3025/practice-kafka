@@ -7,7 +7,7 @@ docker/devices/sim/dev-00NN.log ─ Fluent Bit(tail) ─ HTTP POST ─▶ /inges
         (DeviceLogSimulator 가 씀)     (컨테이너)                   (앱, ack 받고 200)
 ```
 
-시작 전 상태: 03 파일을 마치고 설정을 되돌려 앱을 재시작했다. 컨테이너 셋과 앱이 떠 있다. 앱을 재시작했으므로 `/api/logs/stats`는 0에서 시작한다. 컨테이너 셋 중 fluent-bit은 01 파일에서부터 계속 떠 있었고, `docker/devices/sim`이 비어 있어 지금까지 한 줄도 보내지 않았다.
+시작 전 상태: 03 파일을 마치고 설정을 되돌려 앱을 재시작했다(단계 인자는 그대로). 컨테이너 다섯과 앱이 떠 있다. 앱을 재시작했으므로 `/api/logs/stats`는 0에서 시작한다. 컨테이너 중 fluent-bit은 01 파일에서부터 계속 떠 있었고, `docker/devices/sim`이 비어 있어 지금까지 한 줄도 보내지 않았다.
 
 ## D1. 연습용 로그 200줄 흘리기
 
@@ -23,7 +23,7 @@ Get-ChildItem docker\devices\sim
 Get-Content docker\devices\sim\dev-0001.log -TotalCount 3
 ```
 
-**보여야 하는 것.** 2026-10-14 실측으로 8초 뒤 stats가 `receivedFromFluentBit 200`, `consumed 200`이었다. `docker\devices\sim`에 `dev-0001.log`부터 파일이 생기고, 파일 안에는 `2026-10-15 14:03:21.123 [WARN] BATTERY voltage=...` 같은 줄이 있다.
+**보여야 하는 것.** 2026-10-14 실측으로 8초 뒤 stats가 `receivedFromFluentBit 200`, `consumed 200`이었다(2026-10-19 재현에서는 1.6초 만에 200이 됐다). stats에는 `simulatorWritten`(시뮬레이터가 쓴 줄 수)과 log-stats 그룹의 `statsTotal`도 함께 나온다. 셋이 모두 200이면 된다. `docker\devices\sim`에 `dev-0001.log`부터 파일이 생기고, 파일 안에는 `2026-10-15 14:03:21.123 [WARN] BATTERY voltage=...` 같은 줄이 있다.
 
 앱 콘솔에는 수집 서버의 DEBUG 로그 `Fluent Bit 묶음 수신 N건 (누적 M)`이 여러 번 찍힌다. 실측에서는 200줄이 20번의 요청으로 나뉘어 들어왔다. 요청 하나가 장비 파일 하나에 대응한다. Fluent Bit의 태그(`Tag device.*`)에 파일 경로가 들어가 파일마다 따로 묶이기 때문이다. 그 아래로 consume 줄이 이어진다. `file_offset`은 이제 -1이 아니라 파일 안의 바이트 위치다.
 
@@ -83,7 +83,7 @@ docker logs --tail 6 fluent-bit
 
 4. 앱을 켠다. `partitions assigned`가 나온 뒤 앱 콘솔에서 `manual line while app is down`을 찾고, stats를 친다.
 
-**보여야 하는 것.** 3에서 Fluent Bit 로그에 수집 서버로 접속하지 못했다는 오류(connection refused 같은 문구)와 `failed to flush chunk '...', retry in N seconds`가 보인다. `retries`가 늘어 있다. 4에서는 다음 재시도 때 그 줄이 들어와 콘솔에 consume 줄이 찍힌다. stats는 앱을 막 켰으므로 `receivedFromFluentBit 1`, `consumed 1`이다.
+**보여야 하는 것.** 3에서 Fluent Bit 로그에 수집 서버로 접속하지 못했다는 오류(connection refused 같은 문구)와 `failed to flush chunk '...', retry in N seconds`가 보인다. `retries`가 늘어 있다. 4에서는 다음 재시도 때 그 줄이 들어와 콘솔에 consume 줄이 찍힌다. stats는 앱을 막 켰으므로 `receivedFromFluentBit 1`, `consumed 1`이다. 2026-10-19 재현에서는 `TCP connection failed: host.docker.internal:8080 (Connection refused)`, `retry in 9 seconds`가 보였고, 앱을 켠 지 5초 만에 그 줄이 들어왔다.
 
 **안 될 때.** 앱을 켜고 1분이 넘도록 안 들어오면 Fluent Bit의 재시도 간격이 늘어난 것이다. 재시도할 때마다 대기 시간이 대략 두 배씩, 최대 2,000초까지 길어진다. 실측에서 `retry in 709 seconds`까지 본 적이 있다. 기다리기 싫으면 `docker restart fluent-bit`을 친다. 재시작한 Fluent Bit은 디스크 버퍼에 남은 묶음을 바로 다시 보낸다.
 
@@ -137,7 +137,7 @@ Fluent Bit 로그에는 500 응답과 재시도 예약이 보인다.
 [ warn] [engine] failed to flush chunk '1-1792022392.227830294.flb', retry in 9 seconds: task_id=22, input=tail.0 > output=http.0 (out_id=0)
 ```
 
-4에서는 Kafka를 띄우고 45초 안에 밀려 있던 줄이 모두 들어왔다. 앱은 따로 손대지 않아도 Kafka에 다시 붙었다. 실측 때는 앞선 실험에서 Fluent Bit 버퍼에 남아 있던 묶음까지 함께 들어와 증가분이 50보다 컸다. 00 파일의 깨끗한 상태에서 시작했다면 `receivedFromFluentBit`과 `consumed`가 1에서 적은 값보다 정확히 50씩 늘어야 한다. 그것이 유실 0이다.
+4에서는 Kafka를 띄우고 45초 안에 밀려 있던 줄이 모두 들어왔다. 앱은 따로 손대지 않아도 Kafka에 다시 붙었다. 실측 때는 앞선 실험에서 Fluent Bit 버퍼에 남아 있던 묶음까지 함께 들어와 증가분이 50보다 컸다. 00 파일의 깨끗한 상태에서 시작했다면 `receivedFromFluentBit`과 `consumed`가 1에서 적은 값보다 정확히 50씩 늘어야 한다. 그것이 유실 0이다. 2026-10-19에 깨끗한 상태에서 다시 했을 때 정확히 그랬다. 1에서 1이던 두 값이 51이 됐고, Kafka를 띄운 지 4초 만이었다. 그동안 앱 콘솔에는 첫 시도에서 `Kafka 발행 실패`가 18번 찍혔다. 50줄이 무작위로 흩어져 들어간 장비 파일이 18개였고, 파일마다 요청이 하나씩이었다.
 
 **안 될 때.** 1분이 지나도 50이 다 안 찼으면 D4의 "안 될 때"처럼 재시도 간격이 늘어난 것이다. 조금 더 기다리거나 `docker restart fluent-bit`을 친다.
 
@@ -164,7 +164,7 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/ingest/fluentbit -Cont
 
 응답 본문이 없으므로 터미널에는 아무것도 안 나온다(200). 마지막 `Invoke-RestMethod` 줄을 한 번 더 친다.
 
-**보여야 하는 것.** 앱 콘솔에 `key=dev-0900` consume 줄이 두 번에 걸쳐 2줄씩, 모두 4줄 찍힌다. 두 번째의 `file_offset`도 0과 58로 첫 번째와 같다. Kafka UI Messages에서 `dev-0900`을 검색하면 4건이 있다. 지금 구조에는 중복을 거르는 곳이 없다. Step 4에서 ClickHouse의 ReplacingMergeTree가 같은 `(device_id, source, offset)`을 하나로 합친다.
+**보여야 하는 것.** 앱 콘솔에 `key=dev-0900` consume 줄이 두 번에 걸쳐 2줄씩, 모두 4줄 찍힌다(2026-10-19 확인, 네 건 모두 같은 파티션의 연속된 오프셋). 두 번째의 `file_offset`도 0과 58로 첫 번째와 같다. Kafka UI Messages에서 `dev-0900`을 검색하면 4건이 있다. 지금 구조에는 중복을 거르는 곳이 없다. Step 4에서 ClickHouse의 ReplacingMergeTree가 같은 `(device_id, source, offset)`을 하나로 합친다.
 
 ## 다 됐으면
 

@@ -84,9 +84,9 @@ spring.kafka.consumer.auto-offset-reset=earliest
 
 그룹에 컨슈머가 추가되거나(앱을 하나 더 띄움), 빠지거나(앱 종료, 장애, `max.poll.interval.ms` 초과), 토픽 파티션 수가 바뀌면 브로커의 그룹 코디네이터가 파티션을 다시 나눈다. 이것이 리밸런스다. 기본 프로토콜(eager)에서는 리밸런스 동안 그룹의 모든 컨슈머가 잠시 소비를 멈춘다. 몇백 ms에서 몇 초다. 자주 일어나면 처리량이 눈에 띄게 떨어지므로, 컨슈머를 자주 재시작하거나 처리 시간이 들쭉날쭉해 타임아웃이 나는 상황을 피해야 한다.
 
-Kafka 4.x에는 새 그룹 프로토콜(KIP-848, `group.protocol=consumer`)이 있어 리밸런스가 점진적으로 일어나고 멈춤이 거의 없다. 이 프로젝트는 아직 기본(classic)을 쓰며 Step 3에서 둘을 비교해 본다.
+Kafka 4.x에는 새 그룹 프로토콜(KIP-848, `group.protocol=consumer`)이 있어 리밸런스가 점진적으로 일어난다. 이 프로젝트는 기본(classic)을 쓴다.
 
-실험(Step 3의 핵심): 앱을 `--server.port=8081`로 하나 더 띄운다. 첫 앱 콘솔에 `partitions revoked`와 `partitions assigned`가 찍히며 세 파티션이 두 앱에 나뉜다. Kafka UI → Consumers → log-printer 에서 멤버 2개와 각자의 파티션을 본다. 두 번째 앱을 끄면 다시 첫 앱이 세 파티션을 모두 가져간다.
+Step 3에서 이것을 직접 돌려 봤다. 파티션을 6개로 늘리고 앱을 `--server.port=8081`로 하나 더 띄우면, 첫 앱 콘솔에 `partitions revoked`와 `partitions assigned`가 찍히며 파티션이 두 앱에 나뉜다. 합류, 정상 종료, 강제 종료 때 걸린 시간과 새 프로토콜과의 비교는 `07-파티션과-리밸런스.md`에 있다.
 
 ## 6. 파티션 수를 어떻게 정하는가
 
